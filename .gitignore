@@ -5,6 +5,4 @@ src-tauri/target
 *.log
 .DS_Store
 .vite
-test-results
-playwright-report
-screenshots
+docs/screenshots/*.png
