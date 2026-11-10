@@ -241,6 +241,7 @@ function ColorRow({
 function AccentSwatches() {
   const accent = useSettings((s) => s.accent);
   const themePreset = useSettings((s) => s.themePreset);
+  const customColors = useSettings((s) => s.customColors);
   const set = useSettings((s) => s.set);
   const setColor = useSettings((s) => s.setColor);
   const accents = [
@@ -252,21 +253,27 @@ function AccentSwatches() {
   ] as const;
   return (
     <div className="accent-swatches">
-      {accents.map((a) => (
-        <button
-          key={a.id}
-          className={cx("accent-swatch", accent === a.id && "is-active")}
-          title={a.label}
-          onClick={() => {
-            set("accent", a.id);
-            if (themePreset === "custom") setColor("accent", a.color);
-          }}
-          style={{ "--swatch": a.color } as CSSProperties}
-        >
-          <span />
-          {accent === a.id && <Check size={13} />}
-        </button>
-      ))}
+      {accents.map((a) => {
+        const active =
+          themePreset === "custom"
+            ? customColors.accent.toLowerCase() === a.color.toLowerCase()
+            : accent === a.id;
+        return (
+          <button
+            key={a.id}
+            className={cx("accent-swatch", active && "is-active")}
+            title={a.label}
+            onClick={() => {
+              set("accent", a.id);
+              if (themePreset === "custom") setColor("accent", a.color);
+            }}
+            style={{ "--swatch": a.color } as CSSProperties}
+          >
+            <span />
+            {active && <Check size={13} />}
+          </button>
+        );
+      })}
     </div>
   );
 }
