@@ -41,7 +41,7 @@ export function SearchPage() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("tracks");
   const [source, setSource] = useState<SourceFilter>("all");
-  const [recent, setRecent] = useState<string[]>(["Neon Harbor", "Paper Moons", "Kaito Ren"]);
+  const [recent, setRecent] = useState<string[]>([]);
   const [remoteTracks, setRemoteTracks] = useState<Track[]>([]);
   const [remoteState, setRemoteState] = useState<RemoteState>("idle");
   const [remoteError, setRemoteError] = useState<string | null>(null);
@@ -214,23 +214,27 @@ export function SearchPage() {
 
       {!query.trim() ? (
         <>
-          <SectionHead
-            action={
-              <button className="link-button" onClick={() => setRecent([])}>
-                {t("search.clear")}
-              </button>
-            }
-          >
-            {t("search.recent")}
-          </SectionHead>
-          <div className="recent-queries">
-            {recent.map((item) => (
-              <button key={item} className="recent-query" onClick={() => setQuery(item)}>
-                <SearchIcon size={13} />
-                {item}
-              </button>
-            ))}
-          </div>
+          {recent.length > 0 && (
+            <>
+              <SectionHead
+                action={
+                  <button className="link-button" onClick={() => setRecent([])}>
+                    {t("search.clear")}
+                  </button>
+                }
+              >
+                {t("search.recent")}
+              </SectionHead>
+              <div className="recent-queries">
+                {recent.map((item) => (
+                  <button key={item} className="recent-query" onClick={() => setQuery(item)}>
+                    <SearchIcon size={13} />
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           <EmptyState
             icon={<SearchIcon size={26} />}
             title={t("search.emptyTitle")}

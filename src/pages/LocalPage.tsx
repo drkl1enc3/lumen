@@ -4,7 +4,7 @@ import { FolderOpen, HardDrive, Music2, Play, Plus, Shuffle } from "lucide-react
 import { localTracksList } from "../lib/mock";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
-import { Cover } from "../components/ui";
+import { Cover, EmptyState } from "../components/ui";
 import { TrackRow } from "../components/TrackRow";
 import { formatTotalDuration, pluralTracks } from "../lib/utils";
 
@@ -12,7 +12,7 @@ export function LocalPage() {
   const { t, i18n } = useTranslation();
   const play = usePlayer((s) => s.play);
   const toast = useUI((s) => s.toast);
-  const [folders, setFolders] = useState(["~/Music", "~/Downloads/Music"]);
+  const [folders, setFolders] = useState<string[]>([]);
 
   return (
     <div className="page collection-page">
@@ -61,11 +61,19 @@ export function LocalPage() {
         </button>
       </div>
 
-      <div className="track-list">
-        {localTracksList.map((tr, i) => (
-          <TrackRow key={tr.id} track={tr} index={i} context={localTracksList} showAlbum />
-        ))}
-      </div>
+      {localTracksList.length ? (
+        <div className="track-list">
+          {localTracksList.map((tr, i) => (
+            <TrackRow key={tr.id} track={tr} index={i} context={localTracksList} showAlbum />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          icon={<Music2 size={26} />}
+          title={t("library.localEmpty")}
+          hint={t("library.localEmptyHint")}
+        />
+      )}
 
       <div className="library-footer">
         <Music2 size={14} />

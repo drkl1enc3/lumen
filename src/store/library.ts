@@ -23,18 +23,7 @@ interface LibraryState {
   clearHistory: () => void;
 }
 
-const seedStats: Record<string, number> = {
-  "midnight-transit-1": 14,
-  "paper-moons-1": 11,
-  "signal-bloom-1": 9,
-  "velvet-rust-2": 8,
-  "afterglow-1": 7,
-  "slow-hours-2": 6,
-  "wildwood-3": 5,
-  "still-water-3": 4,
-  "midnight-transit-3": 4,
-  "pixel-coast-2": 3,
-};
+const seedStats: Record<string, number> = {};
 
 export const useLibrary = create<LibraryState>()(
   persist(

@@ -105,11 +105,19 @@ export function LibraryPage() {
               {t("library.allTracks")}
             </button>
           </div>
-          <div className="track-list">
-            {localTracksList.map((tr, i) => (
-              <TrackRow key={tr.id} track={tr} index={i} context={localTracksList} />
-            ))}
-          </div>
+          {localTracksList.length ? (
+            <div className="track-list">
+              {localTracksList.map((tr, i) => (
+                <TrackRow key={tr.id} track={tr} index={i} context={localTracksList} />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={<Music2 size={26} />}
+              title={t("library.localEmpty")}
+              hint={t("library.localEmptyHint")}
+            />
+          )}
         </>
       )}
 

@@ -1,15 +1,14 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowRight, Clock3, Cloud, Headphones, Heart, Play, Users, Waves, Youtube } from "lucide-react";
-import { waveTracks, tracks as allTracks } from "../lib/mock";
+import { ArrowRight, Clock3, Cloud, Headphones, Heart, Play, Plus, Users, Waves, Youtube } from "lucide-react";
+import { waveTracks } from "../lib/mock";
 import { resolveTracks } from "../lib/catalog";
 import { useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
-import { formatLongTime, pluralTracks } from "../lib/utils";
+import { formatLongTime } from "../lib/utils";
 import { Cover, SectionHead } from "../components/ui";
 import { PlaylistCard } from "../components/Cards";
-import { playlists as seedPlaylists } from "../lib/mock";
 
 export function Home() {
   const { t, i18n } = useTranslation();
@@ -18,6 +17,7 @@ export function Home() {
   const playTrack = usePlayer((s) => s.playTrack);
   const toast = useUI((s) => s.toast);
   const setListenTogether = useUI((s) => s.setListenTogether);
+  const setCreatePlaylist = useUI((s) => s.setCreatePlaylist);
 
   const recentIds = useLibrary((s) => s.recent);
   const favoritesIds = useLibrary((s) => s.favorites);
@@ -32,6 +32,11 @@ export function Home() {
   const totalMinutes = recent.reduce((a, t) => a + t.duration, 0);
 
   const startWave = () => {
+    if (!waveTracks.length) {
+      toast(t("home.waveEmpty"));
+      navigate("/search");
+      return;
+    }
     play(waveTracks, 0, { shuffle: true });
     toast(t("toast.waveStarted"), "success");
   };
@@ -172,13 +177,18 @@ export function Home() {
 
       <SectionHead>{t("common.playlists")}</SectionHead>
       <div className="media-grid">
+        {userPlaylists.length === 0 && (
+          <button className="media-card create-card" onClick={() => setCreatePlaylist(true)}>
+            <span className="create-card-icon">
+              <Plus size={26} />
+            </span>
+            <span className="media-card-title">{t("library.newPlaylist")}</span>
+            <span className="media-card-sub">{t("library.emptyPlaylistsHint")}</span>
+          </button>
+        )}
         {userPlaylists.slice(0, 6).map((p) => (
           <PlaylistCard key={p.id} playlist={p} />
         ))}
-      </div>
-      <div className="home-footnote">
-        {pluralTracks(allTracks.length, i18n.language)} · {seedPlaylists.length}{" "}
-        {i18n.language === "ru" ? "плейлистов" : "playlists"}
       </div>
     </div>
   );

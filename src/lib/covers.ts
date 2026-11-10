@@ -67,12 +67,13 @@ function rotateHue(hex: string, degrees: number): string {
 
 function accentPalette(accent: string, seed: number): string[] {
   const lift = hash(seed, 21);
-  const secondary = rotateHue(accent, (hash(seed, 31) - 0.5) * 38);
+  const secondary = rotateHue(accent, (hash(seed, 31) - 0.5) * 84);
+  const third = rotateHue(accent, (hash(seed, 41) - 0.5) * 52);
   return [
-    mixHex("#050507", accent, 0.1 + lift * 0.06),
-    mixHex("#0a0a10", secondary, 0.34 + lift * 0.16),
-    mixHex("#0a0a10", accent, 0.62 + lift * 0.1),
-    mixHex("#0a0a10", secondary, 0.42 + lift * 0.12),
+    mixHex("#050507", accent, 0.1 + lift * 0.08),
+    mixHex("#0a0a10", secondary, 0.3 + lift * 0.2),
+    mixHex("#0a0a10", accent, 0.7 + lift * 0.14),
+    mixHex("#0a0a10", third, 0.48 + lift * 0.2),
   ];
 }
 
