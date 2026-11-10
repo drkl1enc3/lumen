@@ -2,7 +2,6 @@ use crate::AppState;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant, SystemTime};
@@ -12,6 +11,47 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(45);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MAX_CACHE_BYTES_FALLBACK: u64 = 2048 * 1024 * 1024;
+
+fn is_executable(path: &Path) -> bool {
+    let Ok(meta) = path.metadata() else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(windows)]
+    {
+        true
+    }
+}
+
+fn prepare_std_command(command: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
+    }
+}
+
+fn prepare_tokio_command(command: &mut tokio::process::Command) {
+    #[cfg(windows)]
+    {
+        command.creation_flags(0x08000000);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
+    }
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -107,25 +147,38 @@ pub fn find_binary(name: &str) -> Option<PathBuf> {
         dirs.push(home.join("bin"));
     }
 
+    #[cfg(windows)]
+    {
+        if let Some(local) = dirs::data_local_dir() {
+            dirs.push(local.join("Microsoft").join("WinGet").join("Links"));
+        }
+        dirs.push(PathBuf::from("C:\\Program Files\\mpv"));
+        dirs.push(PathBuf::from("C:\\Program Files\\ffmpeg\\bin"));
+        dirs.push(PathBuf::from("C:\\Program Files\\yt-dlp"));
+    }
+
+    let names = vec![name.to_string(), format!("{name}.exe")];
+
     let mut seen = HashSet::new();
     for dir in dirs {
         if !seen.insert(dir.clone()) {
             continue;
         }
-        let candidate = dir.join(name);
-        let executable = candidate
-            .metadata()
-            .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false);
-        if executable {
-            return Some(candidate);
+        for file_name in &names {
+            let candidate = dir.join(file_name);
+            if is_executable(&candidate) {
+                return Some(candidate);
+            }
         }
     }
     None
 }
 
 fn tool_info(path: &Path, args: &[&str]) -> Option<ToolInfo> {
-    let output = std::process::Command::new(path).args(args).output().ok()?;
+    let mut command = std::process::Command::new(path);
+    command.args(args);
+    prepare_std_command(&mut command);
+    let output = command.output().ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let first = text.lines().next().unwrap_or("").trim();
     let version = if first.starts_with("ffmpeg version ") || first.starts_with("ffprobe version ") {
@@ -353,6 +406,7 @@ async fn run_ytdlp_json(ytdlp: &Path, args: Vec<String>) -> Result<String, Strin
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    prepare_tokio_command(&mut command);
 
     let mut child = command
         .spawn()
@@ -636,7 +690,8 @@ fn ffprobe_duration(path: &Path) -> f64 {
     let Some(ffprobe) = find_binary("ffprobe") else {
         return 0.0;
     };
-    let output = std::process::Command::new(ffprobe)
+    let mut command = std::process::Command::new(ffprobe);
+    command
         .args([
             "-v",
             "error",
@@ -645,8 +700,9 @@ fn ffprobe_duration(path: &Path) -> f64 {
             "-of",
             "default=nw=1:nk=1",
         ])
-        .arg(path)
-        .output();
+        .arg(path);
+    prepare_std_command(&mut command);
+    let output = command.output();
     let Ok(output) = output else { return 0.0 };
     String::from_utf8_lossy(&output.stdout)
         .trim()
@@ -716,6 +772,7 @@ async fn download_audio(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    prepare_tokio_command(&mut command);
 
     let mut child = command
         .spawn()

@@ -2,20 +2,78 @@ use crate::sources::find_binary;
 use crate::AppState;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
 
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
+#[cfg(unix)]
+type IpcStream = UnixStream;
+#[cfg(windows)]
+type IpcStream = std::fs::File;
+
 pub struct MpvProcess {
     pub child: Child,
-    writer: UnixStream,
-    socket: PathBuf,
+    writer: IpcStream,
+    socket: String,
 }
 
-fn send(writer: &mut UnixStream, value: Value) -> Result<(), String> {
+#[cfg(unix)]
+fn ipc_address() -> String {
+    std::env::temp_dir()
+        .join(format!("lumen-mpv-{}.sock", std::process::id()))
+        .display()
+        .to_string()
+}
+
+#[cfg(windows)]
+fn ipc_address() -> String {
+    format!(r"\\.\pipe\lumen-mpv-{}", std::process::id())
+}
+
+#[cfg(unix)]
+fn connect_ipc(address: &str) -> std::io::Result<IpcStream> {
+    UnixStream::connect(address)
+}
+
+#[cfg(windows)]
+fn connect_ipc(address: &str) -> std::io::Result<IpcStream> {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(address)
+}
+
+#[cfg(unix)]
+fn cleanup_ipc(address: &str) {
+    let _ = std::fs::remove_file(address);
+}
+
+#[cfg(windows)]
+fn cleanup_ipc(_address: &str) {}
+
+#[cfg(unix)]
+fn configure_child(command: &mut Command) {
+    unsafe {
+        command.pre_exec(|| {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            Ok(())
+        });
+    }
+}
+
+#[cfg(windows)]
+fn configure_child(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(0x08000000);
+}
+
+fn send(writer: &mut IpcStream, value: Value) -> Result<(), String> {
     writer
         .write_all(value.to_string().as_bytes())
         .map_err(|e| format!("mpv IPC: {e}"))?;
@@ -25,11 +83,11 @@ fn send(writer: &mut UnixStream, value: Value) -> Result<(), String> {
     writer.flush().map_err(|e| format!("mpv IPC: {e}"))
 }
 
-fn send_command(writer: &mut UnixStream, command: Value) -> Result<(), String> {
+fn send_command(writer: &mut IpcStream, command: Value) -> Result<(), String> {
     send(writer, json!({ "command": command }))
 }
 
-fn read_events(reader: UnixStream, app: AppHandle) {
+fn read_events(reader: IpcStream, app: AppHandle) {
     let mut last_position = Instant::now() - Duration::from_secs(1);
     for line in BufReader::new(reader).lines().map_while(Result::ok) {
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
@@ -77,9 +135,9 @@ fn read_events(reader: UnixStream, app: AppHandle) {
 
 fn start_mpv(slot: &mut Option<MpvProcess>, app: &AppHandle) -> Result<(), String> {
     let mpv = find_binary("mpv")
-        .ok_or_else(|| "mpv не найден. Установите его: sudo pacman -S mpv".to_string())?;
-    let socket = std::env::temp_dir().join(format!("lumen-mpv-{}.sock", std::process::id()));
-    let _ = std::fs::remove_file(&socket);
+        .ok_or_else(|| "mpv не найден. Установите mpv и добавьте его в PATH".to_string())?;
+    let socket = ipc_address();
+    cleanup_ipc(&socket);
 
     let mut command = Command::new(&mpv);
     command
@@ -95,23 +153,18 @@ fn start_mpv(slot: &mut Option<MpvProcess>, app: &AppHandle) -> Result<(), Strin
         .arg("--keep-open=no")
         .arg("--pause=yes")
         .arg("--load-scripts=no")
-        .arg(format!("--input-ipc-server={}", socket.display()))
+        .arg(format!("--input-ipc-server={socket}"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    unsafe {
-        command.pre_exec(|| {
-            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-            Ok(())
-        });
-    }
+    configure_child(&mut command);
     let child = command
         .spawn()
         .map_err(|e| format!("Не удалось запустить mpv: {e}"))?;
 
     let mut writer = None;
-    for _ in 0..60 {
-        match UnixStream::connect(&socket) {
+    for _ in 0..100 {
+        match connect_ipc(&socket) {
             Ok(stream) => {
                 writer = Some(stream);
                 break;
@@ -159,7 +212,7 @@ where
         if let Some(mut process) = slot.take() {
             let _ = process.child.kill();
             let _ = process.child.wait();
-            let _ = std::fs::remove_file(&process.socket);
+            cleanup_ipc(&process.socket);
         }
         start_mpv(&mut slot, app)?;
     }
@@ -183,7 +236,7 @@ pub fn shutdown(state: &AppState) {
         }
         let _ = process.child.kill();
         let _ = process.child.wait();
-        let _ = std::fs::remove_file(&process.socket);
+        cleanup_ipc(&process.socket);
     }
 }
 

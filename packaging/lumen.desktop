@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Lumen
+GenericName=Music Player
+Comment=Free music player with SoundCloud and YouTube
+Exec=lumen
+Icon=lumen
+Terminal=false
+Categories=AudioVideo;Audio;Player;Music;
+Keywords=music;player;audio;streaming;soundcloud;youtube;
+StartupNotify=true
+StartupWMClass=lumen
