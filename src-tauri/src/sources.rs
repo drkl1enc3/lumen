@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
@@ -11,6 +12,14 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(45);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MAX_CACHE_BYTES_FALLBACK: u64 = 2048 * 1024 * 1024;
+
+static BUNDLED_BIN_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+pub fn set_bundled_bin_dir(dir: PathBuf) {
+    if dir.is_dir() {
+        let _ = BUNDLED_BIN_DIR.set(dir);
+    }
+}
 
 fn is_executable(path: &Path) -> bool {
     let Ok(meta) = path.metadata() else {
@@ -136,6 +145,9 @@ struct Thumbnail {
 
 pub fn find_binary(name: &str) -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(bundled) = BUNDLED_BIN_DIR.get() {
+        dirs.push(bundled.clone());
+    }
     if let Some(path) = std::env::var_os("PATH") {
         dirs.extend(std::env::split_paths(&path));
     }

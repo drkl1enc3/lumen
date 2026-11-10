@@ -38,6 +38,12 @@ impl AppState {
 fn main() {
     tauri::Builder::default()
         .manage(AppState::new())
+        .setup(|app| {
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                sources::set_bundled_bin_dir(resource_dir.join("bin"));
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             sources::source_status,
             sources::source_search,

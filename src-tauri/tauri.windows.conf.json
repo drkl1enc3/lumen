@@ -1,0 +1,13 @@
+{
+  "bundle": {
+    "resources": {
+      "resources/windows/bin/*": "bin/"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
+  }
+}
