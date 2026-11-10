@@ -47,3 +47,20 @@ export function uid(prefix = "id"): string {
 export function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
 }
+
+export function hashString(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash);
+}
+
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`;
+  if (mb >= 10) return `${Math.round(mb)} MB`;
+  return `${mb.toFixed(1)} MB`;
+}

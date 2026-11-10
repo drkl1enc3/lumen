@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Home, LibraryBig, LogIn, PanelLeftClose, PanelLeftOpen, PlayCircle, Search, Settings } from "lucide-react";
+import { Cloud, Home, LibraryBig, LogIn, PanelLeftClose, PanelLeftOpen, PlayCircle, Search, Settings, Youtube } from "lucide-react";
 import { useUI } from "../store/ui";
 import { usePlayer } from "../store/player";
 import { cx } from "../lib/utils";
@@ -37,6 +37,8 @@ export function Rail() {
           {!collapsed && <span className="rail-label">{t("nav.nowPlaying")}</span>}
         </button>
         {item("/search", t("nav.search"), Search)}
+        {item("/source/soundcloud", t("nav.soundcloud"), Cloud)}
+        {item("/source/youtube", t("nav.youtube"), Youtube)}
         {item("/library", t("nav.library"), LibraryBig)}
       </div>
       <div className="rail-bottom">

@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { ListMusic, Trash2, X } from "lucide-react";
+import { ListMusic, Loader2, Trash2, X } from "lucide-react";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
 import { useSettings } from "../store/settings";
@@ -17,6 +17,7 @@ export function QueuePanel() {
   const queue = usePlayer((s) => s.queue);
   const index = usePlayer((s) => s.index);
   const playing = usePlayer((s) => s.playing);
+  const loading = usePlayer((s) => s.loading);
   const remove = usePlayer((s) => s.removeFromQueue);
   const clear = usePlayer((s) => s.clearQueue);
   const current = queue[index];
@@ -62,15 +63,19 @@ export function QueuePanel() {
             <section className="queue-section">
               <p className="queue-section-title">{t("queue.now")}</p>
               <div className="queue-current">
-                <Cover seed={current.cover} className="queue-cover" />
+                <Cover seed={current.cover} src={current.artwork} className="queue-cover" />
                 <div className="queue-current-meta">
-                  <Link to={current.albumId ? `/album/${current.albumId}` : "#"} className="queue-current-title">
-                    {current.title}
-                  </Link>
+                  {current.albumId ? (
+                    <Link to={`/album/${current.albumId}`} className="queue-current-title">
+                      {current.title}
+                    </Link>
+                  ) : (
+                    <span className="queue-current-title">{current.title}</span>
+                  )}
                   <span className="queue-current-artist">{current.artist}</span>
                 </div>
                 <div className="queue-current-right">
-                  <PlayingBars paused={!playing} />
+                  {loading ? <Loader2 size={14} className="spin" /> : <PlayingBars paused={!playing} />}
                   <span className="queue-duration">{formatTime(current.duration)}</span>
                 </div>
               </div>

@@ -1,8 +1,9 @@
-import { useLocation, useMatch } from "react-router-dom";
+import { useLocation, useMatch, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Clock3,
+  Cloud,
   Home,
   LibraryBig,
   ListMusic,
@@ -14,6 +15,7 @@ import {
   Square,
   User,
   X,
+  Youtube,
 } from "lucide-react";
 import { closeWindow, minimizeWindow, setAlwaysOnTop, toggleMaximizeWindow } from "../lib/tauri";
 import { useLibrary } from "../store/library";
@@ -49,8 +51,10 @@ function Logo() {
 export function Titlebar() {
   const { t } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
   const playlists = useLibrary((s) => s.playlists);
   const openSettings = useUI((s) => s.openSettings);
+  const closeSettings = useUI((s) => s.closeSettings);
   const setLogin = useUI((s) => s.setLogin);
   const panel = useSettings((s) => s.panelElements);
   const panelStyle = useSettings((s) => s.panelStyle);
@@ -76,6 +80,12 @@ export function Titlebar() {
   } else if (location.pathname.startsWith("/library")) {
     title = t("nav.library");
     Icon = LibraryBig;
+  } else if (location.pathname.startsWith("/source/soundcloud")) {
+    title = t("nav.soundcloud");
+    Icon = Cloud;
+  } else if (location.pathname.startsWith("/source/youtube")) {
+    title = t("nav.youtube");
+    Icon = Youtube;
   } else if (location.pathname === "/history") {
     title = t("home.history");
     Icon = Clock3;
@@ -123,6 +133,18 @@ export function Titlebar() {
       )}
       {!panel.title && <div />}
       <div className="titlebar-right">
+        <IconButton
+          label={t("nav.search")}
+          size="sm"
+          className="titlebar-action"
+          onClick={() => {
+            closeSettings();
+            navigate("/search");
+            window.setTimeout(() => document.getElementById("global-search")?.focus(), 30);
+          }}
+        >
+          <Search size={15} />
+        </IconButton>
         {panel.mail && (
           <IconButton
             label={t("nav.login")}

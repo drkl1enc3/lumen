@@ -15,6 +15,9 @@ interface PlayerState {
   repeat: RepeatMode;
   speed: number;
   sleepTimer: number | null;
+  loading: boolean;
+  loadProgress: number;
+  loadError: string | null;
   play: (tracks: Track[], start?: number, options?: { shuffle?: boolean }) => void;
   playTrack: (track: Track, context?: Track[]) => void;
   toggle: () => void;
@@ -33,6 +36,9 @@ interface PlayerState {
   removeFromQueue: (index: number) => void;
   clearQueue: () => void;
   moveInQueue: (from: number, to: number) => void;
+  setLoading: (loading: boolean, progress?: number) => void;
+  setLoadProgress: (progress: number) => void;
+  setDuration: (seconds: number) => void;
 }
 
 export const currentTrack = (s: PlayerState): Track | undefined => s.queue[s.index];
@@ -50,6 +56,9 @@ export const usePlayer = create<PlayerState>()(
       repeat: "off",
       speed: 1,
       sleepTimer: null,
+      loading: false,
+      loadProgress: 0,
+      loadError: null,
       play: (tracks, start = 0, options) =>
         set((state) => {
           if (!tracks.length) return {};
@@ -60,6 +69,9 @@ export const usePlayer = create<PlayerState>()(
             playing: true,
             progress: 0,
             shuffle: nextShuffle,
+            loading: false,
+            loadProgress: 0,
+            loadError: null,
           };
         }),
       playTrack: (track, context) => {
@@ -95,7 +107,7 @@ export const usePlayer = create<PlayerState>()(
             return;
           }
         }
-        set({ index: nextIndex, progress: 0, playing: true });
+        set({ index: nextIndex, progress: 0, playing: true, loading: false, loadProgress: 0, loadError: null });
         const track = state.queue[nextIndex];
         if (track) useLibrary.getState().registerPlay(track.id);
       },
@@ -104,7 +116,7 @@ export const usePlayer = create<PlayerState>()(
         if (!state.queue.length) return;
         if (state.progress > 4) return set({ progress: 0 });
         const prevIndex = state.index === 0 ? state.queue.length - 1 : state.index - 1;
-        set({ index: prevIndex, progress: 0, playing: true });
+        set({ index: prevIndex, progress: 0, playing: true, loading: false, loadProgress: 0, loadError: null });
         const track = state.queue[prevIndex];
         if (track) useLibrary.getState().registerPlay(track.id);
       },
@@ -125,7 +137,7 @@ export const usePlayer = create<PlayerState>()(
           if (state.repeat === "one") set({ progress: 0 });
           else if (state.repeat === "all" || state.index < state.queue.length - 1) {
             const nextIndex = (state.index + 1) % state.queue.length;
-            set({ index: nextIndex, progress: 0 });
+            set({ index: nextIndex, progress: 0, loading: false, loadProgress: 0, loadError: null });
             const next = state.queue[nextIndex];
             if (next) useLibrary.getState().registerPlay(next.id);
           } else {
@@ -154,12 +166,32 @@ export const usePlayer = create<PlayerState>()(
             playing: queue.length ? state.playing : false,
           };
         }),
-      clearQueue: () => set({ queue: [], index: 0, playing: false, progress: 0 }),
+      clearQueue: () => set({ queue: [], index: 0, playing: false, progress: 0, loading: false, loadProgress: 0, loadError: null }),
       moveInQueue: (from, to) =>
         set((state) => {
           const queue = [...state.queue];
           const [moved] = queue.splice(from, 1);
           queue.splice(to, 0, moved);
+          return { queue };
+        }),
+      setLoading: (loading, progress) =>
+        set((state) => ({
+          loading,
+          loadProgress: progress ?? (loading ? state.loadProgress : 0),
+          loadError: loading ? null : state.loadError,
+        })),
+      setLoadProgress: (loadProgress) =>
+        set({ loadProgress: clamp(loadProgress, 0, 100) }),
+      setDuration: (seconds) =>
+        set((state) => {
+          if (!Number.isFinite(seconds) || seconds <= 0) return {};
+          const track = state.queue[state.index];
+          if (!track) return {};
+          const duration = Math.max(1, Math.round(seconds));
+          if (Math.abs(track.duration - duration) < 1) return {};
+          const queue = state.queue.map((item, index) =>
+            index === state.index ? { ...item, duration } : item,
+          );
           return { queue };
         }),
     }),

@@ -1,5 +1,6 @@
-import { Heart, MoreHorizontal, Play } from "lucide-react";
+import { Heart, Loader2, MoreHorizontal, Play } from "lucide-react";
 import type { Track } from "../lib/types";
+import { artistByIdMap } from "../lib/mock";
 import { cx, formatTime } from "../lib/utils";
 import { useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
@@ -36,6 +37,7 @@ export function TrackRow({
   const queue = usePlayer((s) => s.queue);
   const currentIndex = usePlayer((s) => s.index);
   const playing = usePlayer((s) => s.playing);
+  const loading = usePlayer((s) => s.loading);
   const playTrack = usePlayer((s) => s.playTrack);
   const favorites = useLibrary((s) => s.favorites);
   const toggleFavorite = useLibrary((s) => s.toggleFavorite);
@@ -60,7 +62,13 @@ export function TrackRow({
     >
       <div className="track-index">
         <span className="track-number">
-          {isCurrent ? <PlayingBars paused={!playing} /> : (index ?? 0) + 1}
+          {isCurrent && loading ? (
+            <Loader2 size={14} className="spin" />
+          ) : isCurrent ? (
+            <PlayingBars paused={!playing} />
+          ) : (
+            (index ?? 0) + 1
+          )}
         </span>
         <button
           className="track-play"
@@ -73,21 +81,25 @@ export function TrackRow({
           <Play size={14} fill="currentColor" />
         </button>
       </div>
-      {showCover && <Cover seed={track.cover} className="track-cover" />}
+      {showCover && <Cover seed={track.cover} src={track.artwork} className="track-cover" />}
       <div className="track-main">
         <div className="track-title-line">
           <span className="track-title">{track.title}</span>
           {showSource && <SourceBadge source={track.source} />}
         </div>
-        <button
-          className="track-artist"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (track.artistId !== "local") window.location.hash = `#/artist/${track.artistId}`;
-          }}
-        >
-          {track.artist}
-        </button>
+        {artistByIdMap.has(track.artistId) ? (
+          <button
+            className="track-artist"
+            onClick={(e) => {
+              e.stopPropagation();
+              window.location.hash = `#/artist/${track.artistId}`;
+            }}
+          >
+            {track.artist}
+          </button>
+        ) : (
+          <span className="track-artist is-static">{track.artist}</span>
+        )}
       </div>
       {showAlbum && <div className="track-album">{track.album ?? "—"}</div>}
       <button

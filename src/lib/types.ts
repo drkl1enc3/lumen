@@ -32,6 +32,10 @@ export interface Track {
   source: Source;
   path?: string;
   plays?: number;
+  artwork?: string;
+  webpageUrl?: string;
+  external?: boolean;
+  previewOnly?: boolean;
 }
 
 export interface Playlist {

@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Clock3, Play, Trash2 } from "lucide-react";
-import { tracksByIds } from "../lib/mock";
+import { resolveTracks } from "../lib/catalog";
 import { useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
@@ -14,7 +14,7 @@ export function HistoryPage() {
   const clear = useLibrary((s) => s.clearHistory);
   const play = usePlayer((s) => s.play);
   const toast = useUI((s) => s.toast);
-  const tracks = tracksByIds(recent);
+  const tracks = resolveTracks(recent);
 
   return (
     <div className="page collection-page">

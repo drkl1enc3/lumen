@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Heart, Play, Shuffle } from "lucide-react";
-import { tracksByIds } from "../lib/mock";
+import { resolveTracks } from "../lib/catalog";
 import { useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
 import { Cover, EmptyState } from "../components/ui";
@@ -11,7 +11,7 @@ export function FavoritesPage() {
   const { t, i18n } = useTranslation();
   const favorites = useLibrary((s) => s.favorites);
   const play = usePlayer((s) => s.play);
-  const tracks = tracksByIds(favorites);
+  const tracks = resolveTracks(favorites);
 
   return (
     <div className="page collection-page">

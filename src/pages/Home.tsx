@@ -1,7 +1,8 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowRight, Clock3, Heart, Play, Sparkles, TrendingUp, Users, Waves } from "lucide-react";
-import { albumByIdMap, artistByIdMap, tracksByIds, waveTracks, tracks as allTracks } from "../lib/mock";
+import { ArrowRight, Clock3, Cloud, Heart, Play, Sparkles, TrendingUp, Users, Waves, Youtube } from "lucide-react";
+import { albumByIdMap, artistByIdMap, waveTracks, tracks as allTracks } from "../lib/mock";
+import { resolveTracks } from "../lib/catalog";
 import { useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
@@ -23,12 +24,12 @@ export function Home() {
   const stats = useLibrary((s) => s.stats);
   const userPlaylists = useLibrary((s) => s.playlists);
 
-  const recent = tracksByIds(recentIds.slice(0, 10));
-  const favorites = tracksByIds(favoritesIds);
+  const recent = resolveTracks(recentIds.slice(0, 10));
+  const favorites = resolveTracks(favoritesIds);
   const waveReady = recentIds.length >= 5;
 
   const topEntries = Object.entries(stats)
-    .map(([id, plays]) => ({ track: tracksByIds([id])[0], plays }))
+    .map(([id, plays]) => ({ track: resolveTracks([id])[0], plays }))
     .filter((x) => x.track)
     .sort((a, b) => b.plays - a.plays)
     .slice(0, 4);
@@ -115,6 +116,30 @@ export function Home() {
         </button>
       </div>
 
+      <SectionHead>{t("home.sources")}</SectionHead>
+      <div className="source-hub-grid">
+        <Link to="/source/soundcloud" className="source-hub-card is-soundcloud">
+          <span className="source-hub-icon">
+            <Cloud size={24} />
+          </span>
+          <span className="source-hub-text">
+            <strong>SoundCloud</strong>
+            <small>{t("home.soundcloudHint")}</small>
+          </span>
+          <ArrowRight size={17} className="source-hub-arrow" />
+        </Link>
+        <Link to="/source/youtube" className="source-hub-card is-youtube">
+          <span className="source-hub-icon">
+            <Youtube size={24} />
+          </span>
+          <span className="source-hub-text">
+            <strong>YouTube</strong>
+            <small>{t("home.youtubeHint")}</small>
+          </span>
+          <ArrowRight size={17} className="source-hub-arrow" />
+        </Link>
+      </div>
+
       <SectionHead
         action={
           <button className="link-button" onClick={() => navigate("/library")}>
@@ -139,7 +164,7 @@ export function Home() {
               topEntries.map(({ track, plays }, i) => (
                 <button key={track.id} className="top-row" onClick={() => playTrack(track!, [track!, ...topEntries.slice(1).map((x) => x.track!)])}>
                   <span className="top-rank">{i + 1}</span>
-                  <Cover seed={track.cover} className="top-cover" />
+                  <Cover seed={track.cover} src={track.artwork} className="top-cover" />
                   <span className="top-text">
                     <span className="top-title">{track.title}</span>
                     <span className="top-sub">{track.artist}</span>
@@ -249,7 +274,7 @@ export function Home() {
           <div className="recent-strip">
             {recent.slice(0, 7).map((track) => (
               <button key={track.id} className="recent-card" onClick={() => playTrack(track, recent)}>
-                <Cover seed={track.cover} className="recent-cover">
+                <Cover seed={track.cover} src={track.artwork} className="recent-cover">
                   <span className="card-play">
                     <Play size={18} fill="currentColor" />
                   </span>

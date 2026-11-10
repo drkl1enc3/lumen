@@ -10,12 +10,18 @@ import { ArtistPage } from "./pages/ArtistPage";
 import { FavoritesPage } from "./pages/FavoritesPage";
 import { LocalPage } from "./pages/LocalPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { SourcePage } from "./pages/SourcePage";
 import { useSettings } from "./store/settings";
 import { usePlayer } from "./store/player";
 import { useUI } from "./store/ui";
 import { useLibrary } from "./store/library";
+import { useSources } from "./store/sources";
 import { syncLanguage } from "./i18n";
 import { applyCustomTheme, clearCustomTheme } from "./lib/theme";
+import { attachPlayerBridge } from "./lib/playerBridge";
+import { isExternalTrack } from "./lib/catalog";
+import { setCacheLimit } from "./lib/sources";
+import { isTauri } from "./lib/tauri";
 
 function Shortcuts() {
   const navigate = useNavigate();
@@ -101,6 +107,7 @@ export default function App() {
   const bgImage = useSettings((s) => s.bgImage);
   const bgImageOpacity = useSettings((s) => s.bgImageOpacity);
   const bgTransparency = useSettings((s) => s.bgTransparency);
+  const cacheLimit = useSettings((s) => s.cacheLimit);
 
   useEffect(() => {
     syncLanguage(language);
@@ -164,9 +171,27 @@ export default function App() {
   }, [glass, opacity, bgImage, bgImageOpacity, bgTransparency]);
 
   useEffect(() => {
-    const id = window.setInterval(() => usePlayer.getState().tick(0.25), 250);
+    const id = window.setInterval(() => {
+      const state = usePlayer.getState();
+      const track = state.queue[state.index];
+      if (!track || !isExternalTrack(track)) state.tick(0.25);
+    }, 250);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => attachPlayerBridge(), []);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    void useSources.getState().refresh();
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    void setCacheLimit(cacheLimit)
+      .then(() => useSources.getState().refresh())
+      .catch(() => undefined);
+  }, [cacheLimit]);
 
   return (
     <HashRouter>
@@ -179,6 +204,8 @@ export default function App() {
           <Route path="/library/favorites" element={<FavoritesPage />} />
           <Route path="/library/local" element={<LocalPage />} />
           <Route path="/history" element={<HistoryPage />} />
+          <Route path="/source/soundcloud" element={<SourcePage source="soundcloud" />} />
+          <Route path="/source/youtube" element={<SourcePage source="youtube" />} />
           <Route path="/playlist/:id" element={<PlaylistPage />} />
           <Route path="/album/:id" element={<AlbumPage />} />
           <Route path="/artist/:id" element={<ArtistPage />} />

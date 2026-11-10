@@ -2,7 +2,8 @@ import { Link } from "react-router-dom";
 import { Play } from "lucide-react";
 import type { Album, Artist, Playlist, Track } from "../lib/types";
 import { usePlayer } from "../store/player";
-import { tracks as allTracks, tracksByIds } from "../lib/mock";
+import { tracks as allTracks } from "../lib/mock";
+import { resolveTracks } from "../lib/catalog";
 import { formatCount, pluralTracks } from "../lib/utils";
 import { useTranslation } from "react-i18next";
 import { Cover } from "./ui";
@@ -10,7 +11,7 @@ import { Cover } from "./ui";
 export function PlaylistCard({ playlist }: { playlist: Playlist }) {
   const { t, i18n } = useTranslation();
   const play = usePlayer((s) => s.play);
-  const tracks = tracksByIds(playlist.trackIds);
+  const tracks = resolveTracks(playlist.trackIds);
   return (
     <Link to={`/playlist/${playlist.id}`} className="media-card">
       <Cover seed={playlist.cover} className="media-card-cover">
@@ -35,7 +36,7 @@ export function PlaylistCard({ playlist }: { playlist: Playlist }) {
 export function AlbumCard({ album }: { album: Album }) {
   const { t } = useTranslation();
   const play = usePlayer((s) => s.play);
-  const tracks = tracksByIds(album.trackIds);
+  const tracks = resolveTracks(album.trackIds);
   return (
     <Link to={`/album/${album.id}`} className="media-card">
       <Cover seed={album.cover} className="media-card-cover">
@@ -91,7 +92,7 @@ export function TrackCard({ track }: { track: Track }) {
   const play = usePlayer((s) => s.play);
   return (
     <button className="track-card" onClick={() => play([track], 0)}>
-      <Cover seed={track.cover} className="track-card-cover">
+      <Cover seed={track.cover} src={track.artwork} className="track-card-cover">
         <span className="card-play">
           <Play size={18} fill="currentColor" />
         </span>

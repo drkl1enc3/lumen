@@ -53,9 +53,10 @@ import {
   X,
 } from "lucide-react";
 import type { SettingsTab } from "../lib/types";
-import { cx } from "../lib/utils";
+import { cx, formatBytes } from "../lib/utils";
 import { useSettings, type Hotkey, type PanelElement } from "../store/settings";
 import { useUI } from "../store/ui";
+import { useSources } from "../store/sources";
 import { IconButton, Select, Slider, Toggle } from "../components/ui";
 import { Visualizer } from "../components/Visualizer";
 import { setFullscreen } from "../lib/tauri";
@@ -618,6 +619,7 @@ export function SettingsOverlay() {
   const toast = useUI((s) => s.toast);
 
   const settings = useSettings();
+  const sources = useSources();
   const set = settings.set;
   const setPlayerButton = settings.setPlayerButton;
   const setPanelElement = settings.setPanelElement;
@@ -1349,6 +1351,43 @@ export function SettingsOverlay() {
             {tab === "hotkeys" && <HotkeysSection />}
             {tab === "integrations" && (
               <>
+                <Group title={t("settings.sources")}>
+                  <Row title="yt-dlp" hint={t("settings.sourceToolsHint")}>
+                    <span className={cx("tool-status", sources.status && !sources.status.ytdlp && "is-missing")}>
+                      {sources.status ? sources.status.ytdlp?.version ?? t("settings.notFound") : "—"}
+                    </span>
+                  </Row>
+                  <Row title="ffmpeg" hint={t("settings.sourceToolsHint")}>
+                    <span className={cx("tool-status", sources.status && !sources.status.ffmpeg && "is-missing")}>
+                      {sources.status ? sources.status.ffmpeg?.version ?? t("settings.notFound") : "—"}
+                    </span>
+                  </Row>
+                  <Row title="mpv" hint={t("settings.sourceToolsHint")}>
+                    <span className={cx("tool-status", sources.status && !sources.status.mpv && "is-missing")}>
+                      {sources.status ? sources.status.mpv?.version ?? t("settings.notFound") : "—"}
+                    </span>
+                  </Row>
+                  <Row title={t("settings.sourceCache")} hint={sources.cache ? `${formatBytes(sources.cache.bytes)} · ${sources.cache.files}` : t("settings.sourceCacheHint")}>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={sources.refreshing}
+                      onClick={() => {
+                        void sources.clear().then((ok) => {
+                          if (ok) toast(t("toast.cacheCleared"), "success");
+                        });
+                      }}
+                    >
+                      {t("settings.clearCache")}
+                    </button>
+                  </Row>
+                  {sources.error && (
+                    <Row title={t("settings.sourceError")} hint={sources.error}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => void sources.refresh()}>
+                        {t("settings.refresh")}
+                      </button>
+                    </Row>
+                  )}
+                </Group>
                 <Group title={t("settings.integrations")}>
                   <Row title={t("settings.discord")} hint={t("settings.discordHint")}>
                     <Toggle checked={settings.discord} onChange={(v) => set("discord", v)} />

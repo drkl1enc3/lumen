@@ -6,6 +6,7 @@ import {
   Download,
   Heart,
   ListMusic,
+  Loader2,
   Maximize2,
   Mic2,
   Minimize2,
@@ -26,6 +27,8 @@ import {
 } from "lucide-react";
 import { Cover, IconButton, Slider, SourceBadge } from "../components/ui";
 import { Visualizer } from "../components/Visualizer";
+import { artistByIdMap } from "../lib/mock";
+import { isExternalTrack } from "../lib/catalog";
 import { cx, formatTime } from "../lib/utils";
 import { usePlayer } from "../store/player";
 import { useLibrary } from "../store/library";
@@ -44,6 +47,8 @@ export function PlayerBar() {
   const repeat = usePlayer((s) => s.repeat);
   const speed = usePlayer((s) => s.speed);
   const sleepTimer = usePlayer((s) => s.sleepTimer);
+  const loading = usePlayer((s) => s.loading);
+  const loadProgress = usePlayer((s) => s.loadProgress);
 
   const toggle = usePlayer((s) => s.toggle);
   const next = usePlayer((s) => s.next);
@@ -102,10 +107,10 @@ export function PlayerBar() {
     >
       <div className="player-left">
         <div className="player-cover-wrap">
-          <Cover seed={track.cover} className="player-cover" style={coverStyle}>
+          <Cover seed={track.cover} src={track.artwork} className="player-cover" style={coverStyle}>
             {coverInCover && (
               <span className="player-cover-inset">
-                <Cover seed={nextTrack?.cover ?? track.cover} className="player-cover-mini" />
+                <Cover seed={nextTrack?.cover ?? track.cover} src={nextTrack?.artwork} className="player-cover-mini" />
               </span>
             )}
             {coverVisualizer && (
@@ -116,19 +121,34 @@ export function PlayerBar() {
           </Cover>
         </div>
         <div className="player-meta">
-          <Link to={track.albumId ? `/album/${track.albumId}` : "#"} className="player-title" title={track.title}>
-            {track.title}
-          </Link>
-          <Link
-            to={track.artistId !== "local" ? `/artist/${track.artistId}` : "#"}
-            className="player-artist"
-          >
-            {track.artist}
-          </Link>
+          {track.albumId ? (
+            <Link to={`/album/${track.albumId}`} className="player-title" title={track.title}>
+              {track.title}
+            </Link>
+          ) : (
+            <span className="player-title" title={track.title}>
+              {track.title}
+            </span>
+          )}
+          {artistByIdMap.has(track.artistId) ? (
+            <Link to={`/artist/${track.artistId}`} className="player-artist">
+              {track.artist}
+            </Link>
+          ) : (
+            <span className="player-artist">{track.artist}</span>
+          )}
           <div className="player-badges">
             <SourceBadge source={track.source} />
+            {!isExternalTrack(track) && <span className="player-demo">{t("player.demo")}</span>}
+            {loading && (
+              <span className="player-loading">
+                <Loader2 size={11} className="spin" />
+                {t("player.loading")}
+                {loadProgress > 0 && loadProgress < 100 ? ` ${Math.round(loadProgress)}%` : ""}
+              </span>
+            )}
           </div>
-          {nextTrackPreview && nextTrack && (
+          {!loading && nextTrackPreview && nextTrack && (
             <span className="player-next" title={nextTrack.title}>
               {t("player.upNext")}: {nextTrack.title}
             </span>
@@ -168,7 +188,13 @@ export function PlayerBar() {
             <SkipBack size={18} fill="currentColor" />
           </IconButton>
           <button className="play-button" aria-label={playing ? t("common.pause") : t("common.play")} onClick={toggle}>
-            {playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
+            {loading ? (
+              <Loader2 size={20} className="spin" />
+            ) : playing ? (
+              <Pause size={20} fill="currentColor" />
+            ) : (
+              <Play size={20} fill="currentColor" />
+            )}
           </button>
           <IconButton label={t("common.next")} onClick={() => next()}>
             <SkipForward size={18} fill="currentColor" />
@@ -190,6 +216,7 @@ export function PlayerBar() {
             step={1}
             value={Math.min(progress, track.duration)}
             onChange={seek}
+            disabled={loading}
           />
           <span className="player-time">{formatTime(track.duration)}</span>
         </div>

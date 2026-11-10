@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Album, Disc3, Heart, ListMusic, Music2, Plus, Users } from "lucide-react";
-import { albums, artists, localTracksList, tracks, tracksByIds } from "../lib/mock";
+import { albums, artists, localTracksList, tracks } from "../lib/mock";
+import { resolveTracks } from "../lib/catalog";
 import { useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
@@ -19,7 +20,7 @@ export function LibraryPage() {
   const favorites = useLibrary((s) => s.favorites);
   const setCreate = useUI((s) => s.setCreatePlaylist);
   const play = usePlayer((s) => s.play);
-  const favoriteTracks = tracksByIds(favorites);
+  const favoriteTracks = resolveTracks(favorites);
 
   const tabs: { id: Tab; label: string; icon: typeof ListMusic }[] = [
     { id: "playlists", label: t("common.playlists"), icon: ListMusic },

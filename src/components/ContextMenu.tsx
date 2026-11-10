@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Heart, ListPlus, Play, Plus, Share2, User } from "lucide-react";
-import { trackById } from "../lib/mock";
+import { resolveTrack } from "../lib/catalog";
+import { artistByIdMap } from "../lib/mock";
 import { useUI } from "../store/ui";
 import { usePlayer } from "../store/player";
 import { useLibrary } from "../store/library";
@@ -37,7 +38,7 @@ export function ContextMenu() {
   }, [menu, close]);
 
   if (!menu) return null;
-  const track = trackById.get(menu.trackId);
+  const track = resolveTrack(menu.trackId);
   if (!track) return null;
   const liked = favorites.includes(track.id);
   const x = Math.max(8, Math.min(menu.x, window.innerWidth - 240));
@@ -73,10 +74,10 @@ export function ContextMenu() {
         },
       )}
       <div className="ctx-sep" />
-      {track.artistId !== "local" &&
+      {artistByIdMap.has(track.artistId) &&
         item(<User size={15} />, t("common.goToArtist"), () => navigate(`/artist/${track.artistId}`))}
       {item(<Share2 size={15} />, t("common.copyLink"), () => {
-        void navigator.clipboard?.writeText(`https://lumen.fun/track/${track.id}`).catch(() => undefined);
+        void navigator.clipboard?.writeText(track.webpageUrl ?? `https://lumen.fun/track/${track.id}`).catch(() => undefined);
         toast(t("toast.copied"));
       })}
     </div>

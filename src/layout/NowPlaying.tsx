@@ -18,6 +18,7 @@ import {
 import { coverUrl } from "../lib/covers";
 import { cx, formatTime } from "../lib/utils";
 import { tracks as allTracks } from "../lib/mock";
+import { artistByIdMap } from "../lib/mock";
 import { usePlayer } from "../store/player";
 import { useLibrary } from "../store/library";
 import { useUI } from "../store/ui";
@@ -101,10 +102,10 @@ export function NowPlaying() {
       <div className="np-body">
         <section className="np-main">
           <div className="np-art-wrap">
-            <Cover seed={track.cover} className="np-art" style={coverImage}>
+            <Cover seed={track.cover} src={track.artwork} className="np-art" style={coverImage}>
               {coverInCover && nextTrack && (
                 <span className="np-art-inset">
-                  <Cover seed={nextTrack.cover} className="np-art-mini" />
+                  <Cover seed={nextTrack.cover} src={nextTrack.artwork} className="np-art-mini" />
                 </span>
               )}
               {coverVisualizer && (
@@ -118,7 +119,11 @@ export function NowPlaying() {
             <div className="np-text">
               <h1>{track.title}</h1>
               <div className="np-links">
-                <Link to={track.artistId !== "local" ? `/artist/${track.artistId}` : "#"}>{track.artist}</Link>
+                {artistByIdMap.has(track.artistId) ? (
+                  <Link to={`/artist/${track.artistId}`}>{track.artist}</Link>
+                ) : (
+                  <span>{track.artist}</span>
+                )}
                 {track.albumId && (
                   <>
                     <span>·</span>

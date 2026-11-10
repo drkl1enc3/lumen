@@ -6,21 +6,34 @@ import type { Source } from "../lib/types";
 
 export function Cover({
   seed,
+  src,
   className,
   children,
   style,
   onClick,
 }: {
   seed: number;
+  src?: string;
   className?: string;
   children?: ReactNode;
   style?: CSSProperties;
   onClick?: () => void;
 }) {
+  const base = coverStyle(seed);
   return (
     <div
       className={cx("cover", className)}
-      style={{ ...coverStyle(seed), ...style }}
+      style={{
+        ...base,
+        ...(src
+          ? {
+              backgroundImage: `url("${src}"), ${base.backgroundImage}`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
+          : {}),
+        ...style,
+      }}
       onClick={onClick}
     >
       {children}
@@ -115,6 +128,7 @@ export function Slider({
   step = 0.01,
   className,
   ariaLabel,
+  disabled,
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -123,6 +137,7 @@ export function Slider({
   step?: number;
   className?: string;
   ariaLabel?: string;
+  disabled?: boolean;
 }) {
   const pct = max === min ? 0 : ((value - min) / (max - min)) * 100;
   return (
@@ -134,6 +149,7 @@ export function Slider({
       max={max}
       step={step}
       value={value}
+      disabled={disabled}
       style={{ "--pct": `${pct}%` } as CSSProperties}
       onChange={(e) => onChange(Number(e.target.value))}
       onPointerDown={(e) => e.stopPropagation()}

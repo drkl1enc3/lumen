@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { MoreHorizontal, Pencil, Play, Plus, Shuffle, Trash2 } from "lucide-react";
-import { tracksByIds } from "../lib/mock";
+import { resolveTracks } from "../lib/catalog";
 import { useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
@@ -47,7 +47,7 @@ export function PlaylistPage() {
     );
   }
 
-  const tracks = tracksByIds(playlist.trackIds);
+  const tracks = resolveTracks(playlist.trackIds);
 
   return (
     <div className="page collection-page">

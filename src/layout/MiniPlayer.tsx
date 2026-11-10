@@ -77,7 +77,7 @@ export function MiniPlayer() {
         </span>
       </div>
       <div className="mini-body">
-        <Cover seed={track.cover} className="mini-cover" />
+        <Cover seed={track.cover} src={track.artwork} className="mini-cover" />
         <div className="mini-meta">
           <span className="mini-title">{track.title}</span>
           <span className="mini-artist">{track.artist}</span>

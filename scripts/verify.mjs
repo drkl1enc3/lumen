@@ -80,7 +80,7 @@ await shot("12-settings-general");
 
 const settingsTabs = [
   ["Воспроизведение", "13-settings-playback"],
-  ["Внешний вид", "14-settings-appearance"],
+  ["Оформление", "14-settings-appearance"],
   ["Управление", "15-settings-controls"],
   ["Горячие клавиши", "16-settings-hotkeys"],
   ["Интеграции", "17-settings-integrations"],
@@ -93,7 +93,7 @@ for (const [title, name] of settingsTabs) {
 }
 
 // accent theme
-await page.locator('.settings-rail-item[title="Внешний вид"]').click();
+await page.locator('.settings-rail-item[title="Оформление"]').click();
 await page.locator(".accent-swatch").nth(1).click();
 const accent = await page.evaluate(() => document.documentElement.dataset.accent);
 console.log("accent =", accent);
