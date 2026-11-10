@@ -106,6 +106,8 @@ export interface SettingsState {
   panelElementsOrder: PanelElement[];
 
   customCover: string | null;
+  playlistCover: string | null;
+  coverThemeSync: boolean;
   coverPosition: "left" | "right";
   coverVisualizer: boolean;
   coverInCover: boolean;
@@ -213,6 +215,8 @@ const defaults = {
   panelAutoHide: false,
 
   customCover: null as string | null,
+  playlistCover: null as string | null,
+  coverThemeSync: true,
   coverPosition: "left" as const,
   coverVisualizer: false,
   coverInCover: false,

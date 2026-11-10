@@ -14,6 +14,7 @@ interface LibraryState {
   isFavorite: (id: string) => boolean;
   createPlaylist: (name: string, description?: string) => Playlist;
   renamePlaylist: (id: string, name: string) => void;
+  setPlaylistCover: (id: string, image: string | null) => void;
   deletePlaylist: (id: string) => void;
   addToPlaylist: (playlistId: string, trackId: string) => void;
   removeFromPlaylist: (playlistId: string, trackId: string) => void;
@@ -69,6 +70,14 @@ export const useLibrary = create<LibraryState>()(
         set((state) => ({
           playlists: state.playlists.map((p) =>
             p.id === id ? { ...p, name, updatedAt: Date.now() } : p,
+          ),
+        })),
+      setPlaylistCover: (id, image) =>
+        set((state) => ({
+          playlists: state.playlists.map((p) =>
+            p.id === id
+              ? { ...p, coverImage: image || null, updatedAt: Date.now() }
+              : p,
           ),
         })),
       deletePlaylist: (id) =>

@@ -1,12 +1,12 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowRight, Clock3, Cloud, Heart, Play, Sparkles, TrendingUp, Users, Waves, Youtube } from "lucide-react";
-import { albumByIdMap, artistByIdMap, waveTracks, tracks as allTracks } from "../lib/mock";
+import { ArrowRight, Clock3, Cloud, Headphones, Heart, Play, Users, Waves, Youtube } from "lucide-react";
+import { waveTracks, tracks as allTracks } from "../lib/mock";
 import { resolveTracks } from "../lib/catalog";
 import { useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
-import { formatCount, formatLongTime, pluralTracks } from "../lib/utils";
+import { formatLongTime, pluralTracks } from "../lib/utils";
 import { Cover, SectionHead } from "../components/ui";
 import { PlaylistCard } from "../components/Cards";
 import { playlists as seedPlaylists } from "../lib/mock";
@@ -28,35 +28,8 @@ export function Home() {
   const favorites = resolveTracks(favoritesIds);
   const waveReady = recentIds.length >= 5;
 
-  const topEntries = Object.entries(stats)
-    .map(([id, plays]) => ({ track: resolveTracks([id])[0], plays }))
-    .filter((x) => x.track)
-    .sort((a, b) => b.plays - a.plays)
-    .slice(0, 4);
-
-  const artistPlays = new Map<string, number>();
-  topEntries.forEach(({ track, plays }) => {
-    if (!track) return;
-    artistPlays.set(track.artistId, (artistPlays.get(track.artistId) ?? 0) + plays);
-  });
-  const topArtists = [...artistPlays.entries()]
-    .map(([id, plays]) => ({ artist: artistByIdMap.get(id), plays }))
-    .filter((x) => x.artist)
-    .slice(0, 4);
-
-  const albumPlays = new Map<string, number>();
-  topEntries.forEach(({ track, plays }) => {
-    if (!track?.albumId) return;
-    albumPlays.set(track.albumId, (albumPlays.get(track.albumId) ?? 0) + plays);
-  });
-  const topAlbums = [...albumPlays.entries()]
-    .map(([id, plays]) => ({ album: albumByIdMap.get(id), plays }))
-    .filter((x) => x.album)
-    .slice(0, 3);
-
   const totalPlays = Object.values(stats).reduce((a, b) => a + b, 0);
   const totalMinutes = recent.reduce((a, t) => a + t.duration, 0);
-  const maxPlays = Math.max(...Object.values(stats), 1);
 
   const startWave = () => {
     play(waveTracks, 0, { shuffle: true });
@@ -116,6 +89,35 @@ export function Home() {
         </button>
       </div>
 
+      <section className="listening-card">
+        <span className="listening-card-icon">
+          <Headphones size={22} />
+        </span>
+        <div className="listening-card-main">
+          <span className="listening-card-label">{t("home.listening")}</span>
+          <div className="listening-card-value">
+            <strong>{totalPlays}</strong>
+            <span>
+              {i18n.language === "ru"
+                ? "прослушиваний"
+                : i18n.language === "uk"
+                  ? "прослуховувань"
+                  : "plays"}
+              {" · "}
+              {formatLongTime(totalMinutes)}
+            </span>
+          </div>
+          <span className="listening-card-last">
+            {recent[0] ? `${t("home.recently")}: ${recent[0].title}` : t("home.nothingYet")}
+          </span>
+        </div>
+        <div className="listening-card-bars stats-bars" aria-hidden>
+          {[38, 62, 44, 78, 56, 88, 70].map((h, i) => (
+            <span key={i} style={{ height: `${h}%` }} />
+          ))}
+        </div>
+      </section>
+
       <SectionHead>{t("home.sources")}</SectionHead>
       <div className="source-hub-grid">
         <Link to="/source/soundcloud" className="source-hub-card is-soundcloud">
@@ -138,125 +140,6 @@ export function Home() {
           </span>
           <ArrowRight size={17} className="source-hub-arrow" />
         </Link>
-      </div>
-
-      <SectionHead
-        action={
-          <button className="link-button" onClick={() => navigate("/library")}>
-            {t("common.showAll")}
-            <ArrowRight size={14} />
-          </button>
-        }
-      >
-        {t("home.tops")}
-      </SectionHead>
-
-      <div className="tops-grid">
-        <div className="top-card">
-          <div className="top-card-head">
-            <span>
-              <TrendingUp size={14} />
-              {t("home.topTracks")}
-            </span>
-          </div>
-          <div className="top-card-body">
-            {topEntries.length ? (
-              topEntries.map(({ track, plays }, i) => (
-                <button key={track.id} className="top-row" onClick={() => playTrack(track!, [track!, ...topEntries.slice(1).map((x) => x.track!)])}>
-                  <span className="top-rank">{i + 1}</span>
-                  <Cover seed={track.cover} src={track.artwork} className="top-cover" />
-                  <span className="top-text">
-                    <span className="top-title">{track.title}</span>
-                    <span className="top-sub">{track.artist}</span>
-                  </span>
-                  <span className="top-plays">{formatCount(plays)}</span>
-                </button>
-              ))
-            ) : (
-              <p className="top-empty">{t("home.nothingYet")}</p>
-            )}
-          </div>
-        </div>
-
-        <div className="top-card">
-          <div className="top-card-head">
-            <span>
-              <Users size={14} />
-              {t("home.topArtists")}
-            </span>
-          </div>
-          <div className="top-card-body">
-            {topArtists.length ? (
-              topArtists.map(({ artist, plays }, i) => (
-                <button key={artist!.id} className="top-row" onClick={() => navigate(`/artist/${artist!.id}`)}>
-                  <span className="top-rank">{i + 1}</span>
-                  <Cover seed={artist!.avatar} className="top-cover is-round" />
-                  <span className="top-text">
-                    <span className="top-title">{artist!.name}</span>
-                    <span className="top-sub">{artist!.genre}</span>
-                  </span>
-                  <span className="top-plays">{plays}</span>
-                </button>
-              ))
-            ) : (
-              <p className="top-empty">{t("home.nothingYet")}</p>
-            )}
-          </div>
-        </div>
-
-        <div className="top-card">
-          <div className="top-card-head">
-            <span>
-              <Sparkles size={14} />
-              {t("home.topAlbums")}
-            </span>
-          </div>
-          <div className="top-card-body">
-            {topAlbums.length ? (
-              topAlbums.map(({ album, plays }, i) => (
-                <button key={album!.id} className="top-row" onClick={() => navigate(`/album/${album!.id}`)}>
-                  <span className="top-rank">{i + 1}</span>
-                  <Cover seed={album!.cover} className="top-cover" />
-                  <span className="top-text">
-                    <span className="top-title">{album!.title}</span>
-                    <span className="top-sub">{album!.artist}</span>
-                  </span>
-                  <span className="top-plays">{plays}</span>
-                </button>
-              ))
-            ) : (
-              <p className="top-empty">{t("home.nothingYet")}</p>
-            )}
-          </div>
-        </div>
-
-        <div className="top-card">
-          <div className="top-card-head">
-            <span>
-              <Clock3 size={14} />
-              {t("home.listening")}
-            </span>
-          </div>
-          <div className="top-card-body stats-card">
-            <div className="stats-big">
-              <strong>{totalPlays}</strong>
-              <span>{i18n.language === "ru" ? "прослушиваний" : i18n.language === "uk" ? "прослуховувань" : "plays"}</span>
-            </div>
-            <div className="stats-bars" aria-hidden>
-              {[38, 62, 44, 78, 56, 88, 70].map((h, i) => (
-                <span key={i} style={{ height: `${h}%` }} />
-              ))}
-            </div>
-            <div className="stats-foot">
-              <span>{formatLongTime(totalMinutes)}</span>
-              <span>
-                {topEntries[0]?.track
-                  ? `${t("home.recently")}: ${topEntries[0].track.title}`
-                  : t("home.nothingYet")}
-              </span>
-            </div>
-          </div>
-        </div>
       </div>
 
       {recent.length > 0 && (

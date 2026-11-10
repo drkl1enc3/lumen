@@ -1,3 +1,5 @@
+import { mixHex } from "./theme";
+
 const palettes: string[][] = [
   ["#0d0718", "#5b3bff", "#ff5f9e", "#8f7bff"],
   ["#041014", "#0e7490", "#5eead4", "#22d3ee"],
@@ -15,9 +17,70 @@ function hash(seed: number, salt = 7) {
   return Math.abs(Math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453) % 1;
 }
 
+function rgbToHsl(hex: string): [number, number, number] {
+  const clean = hex.replace("#", "");
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h /= 6;
+  }
+  return [h, s, l];
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const hue = ((h % 1) + 1) % 1;
+  if (s === 0) {
+    const value = Math.round(l * 255).toString(16).padStart(2, "0");
+    return `#${value}${value}${value}`;
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const channel = (t: number) => {
+    let value = t;
+    if (value < 0) value += 1;
+    if (value > 1) value -= 1;
+    if (value < 1 / 6) return p + (q - p) * 6 * value;
+    if (value < 1 / 2) return q;
+    if (value < 2 / 3) return p + (q - p) * (2 / 3 - value) * 6;
+    return p;
+  };
+  return `#${[channel(hue + 1 / 3), channel(hue), channel(hue - 1 / 3)]
+    .map((v) => Math.round(v * 255).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function rotateHue(hex: string, degrees: number): string {
+  const [h, s, l] = rgbToHsl(hex);
+  return hslToHex(h + degrees / 360, s, l);
+}
+
+function accentPalette(accent: string, seed: number): string[] {
+  const lift = hash(seed, 21);
+  const secondary = rotateHue(accent, (hash(seed, 31) - 0.5) * 38);
+  return [
+    mixHex("#050507", accent, 0.1 + lift * 0.06),
+    mixHex("#0a0a10", secondary, 0.34 + lift * 0.16),
+    mixHex("#0a0a10", accent, 0.62 + lift * 0.1),
+    mixHex("#0a0a10", secondary, 0.42 + lift * 0.12),
+  ];
+}
+
 /** Deterministic, self-contained abstract cover art (no external assets). */
-export function coverUrl(seed: number): string {
-  const p = palettes[Math.abs(seed) % palettes.length];
+export function coverUrl(seed: number, accent?: string | null): string {
+  const p = accent
+    ? accentPalette(accent, seed)
+    : palettes[Math.abs(seed) % palettes.length];
   const x1 = 20 + hash(seed, 1) * 55;
   const y1 = 15 + hash(seed, 2) * 50;
   const x2 = 30 + hash(seed, 3) * 55;
@@ -91,11 +154,10 @@ export function coverUrl(seed: number): string {
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
 
-export function coverStyle(seed: number, size?: number) {
+export function coverStyle(seed: number, accent?: string | null) {
   return {
-    backgroundImage: coverUrl(seed),
+    backgroundImage: coverUrl(seed, accent),
     backgroundSize: "cover",
     backgroundPosition: "center",
-    ...(size ? { width: size, height: size } : {}),
   } as const;
 }

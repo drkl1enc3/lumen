@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { MoreHorizontal, Pencil, Play, Plus, Shuffle, Trash2 } from "lucide-react";
+import { ImagePlus, ListMusic, MoreHorizontal, Pencil, Play, Plus, RotateCcw, Shuffle, Trash2 } from "lucide-react";
 import { resolveTracks } from "../lib/catalog";
 import { useLibrary } from "../store/library";
 import { usePlayer } from "../store/player";
+import { useSettings } from "../store/settings";
 import { useUI } from "../store/ui";
 import { Cover, EmptyState, IconButton, Modal, ModalHeader } from "../components/ui";
 import { TrackRow } from "../components/TrackRow";
@@ -16,12 +17,15 @@ export function PlaylistPage() {
   const { t, i18n } = useTranslation();
   const playlists = useLibrary((s) => s.playlists);
   const rename = useLibrary((s) => s.renamePlaylist);
+  const setPlaylistCover = useLibrary((s) => s.setPlaylistCover);
   const remove = useLibrary((s) => s.deletePlaylist);
   const reorder = useLibrary((s) => s.reorderPlaylist);
   const removeTrack = useLibrary((s) => s.removeFromPlaylist);
   const play = usePlayer((s) => s.play);
   const toast = useUI((s) => s.toast);
   const setCreate = useUI((s) => s.setCreatePlaylist);
+  const playlistCover = useSettings((s) => s.playlistCover);
+  const coverInput = useRef<HTMLInputElement>(null);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -48,13 +52,41 @@ export function PlaylistPage() {
   }
 
   const tracks = resolveTracks(playlist.trackIds);
+  const coverImage = playlist.coverImage ?? playlistCover ?? undefined;
 
   return (
     <div className="page collection-page">
       <header className="collection-hero">
-        <Cover seed={playlist.cover} className="collection-cover">
+        <Cover seed={playlist.cover} src={coverImage} className="collection-cover">
           <span className="collection-cover-glow" />
+          {!coverImage && <ListMusic size={40} className="collection-cover-icon" />}
+          <button
+            type="button"
+            className="collection-cover-edit"
+            title={t("playlist.changeCover")}
+            aria-label={t("playlist.changeCover")}
+            onClick={() => coverInput.current?.click()}
+          >
+            <ImagePlus size={16} />
+          </button>
         </Cover>
+        <input
+          ref={coverInput}
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+              setPlaylistCover(playlist.id, String(reader.result ?? ""));
+              toast(t("toast.coverUpdated"), "success");
+            };
+            reader.readAsDataURL(file);
+          }}
+        />
         <div className="collection-info">
           <p className="eyebrow">
             {playlist.source === "local" ? t("common.local") : t("common.playlists")}
@@ -99,6 +131,29 @@ export function PlaylistPage() {
                     <Pencil size={14} />
                     {t("common.rename")}
                   </button>
+                  <button
+                    className="popover-item"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      coverInput.current?.click();
+                    }}
+                  >
+                    <ImagePlus size={14} />
+                    {t("playlist.changeCover")}
+                  </button>
+                  {playlist.coverImage && (
+                    <button
+                      className="popover-item"
+                      onClick={() => {
+                        setPlaylistCover(playlist.id, null);
+                        setMenuOpen(false);
+                        toast(t("toast.coverReset"), "success");
+                      }}
+                    >
+                      <RotateCcw size={14} />
+                      {t("playlist.resetCover")}
+                    </button>
+                  )}
                   <button
                     className="popover-item is-danger"
                     onClick={() => {

@@ -78,6 +78,7 @@ const tabs: { id: SettingsTab; icon: typeof Settings2 }[] = [
   { id: "tabs", icon: PanelsTopLeft },
   { id: "panel", icon: PanelTop },
   { id: "cover", icon: Disc3 },
+  { id: "playlists", icon: ListMusic },
   { id: "player", icon: PlayCircle },
   { id: "controls", icon: SlidersHorizontal },
   { id: "playback", icon: AudioLines },
@@ -1158,6 +1159,28 @@ export function SettingsOverlay() {
                   <Toggle checked={settings.coverInCover} onChange={(v) => set("coverInCover", v)} />
                 </Row>
               </Group>
+            )}
+
+            {tab === "playlists" && (
+              <>
+                <Group title={t("settings.playlists")}>
+                  <ImagePicker
+                    value={settings.playlistCover}
+                    onChange={(v) => set("playlistCover", v)}
+                    label={t("settings.playlistCover")}
+                    hint={t("settings.playlistCoverHint")}
+                  />
+                  <Row title={t("settings.coverThemeSync")} hint={t("settings.coverThemeSyncHint")}>
+                    <Toggle
+                      checked={settings.coverThemeSync}
+                      onChange={(v) => set("coverThemeSync", v)}
+                    />
+                  </Row>
+                </Group>
+                <Group title={t("settings.playlistCoverHow")}>
+                  <p className="settings-note">{t("settings.playlistCoverHowHint")}</p>
+                </Group>
+              </>
             )}
 
             {tab === "player" && (

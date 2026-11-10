@@ -43,6 +43,7 @@ export interface Playlist {
   name: string;
   description?: string;
   cover: number;
+  coverImage?: string | null;
   source: Source | "mixed";
   trackIds: string[];
   author?: string;
@@ -60,6 +61,7 @@ export type SettingsTab =
   | "tabs"
   | "panel"
   | "cover"
+  | "playlists"
   | "player"
   | "controls"
   | "hotkeys"

@@ -62,7 +62,6 @@ await shot("08-playlist");
 
 // artist from playlist track? go home then artist page
 await page.locator('.rail a[title="Главная"]').click();
-await page.locator(".top-row").first().click(); // opens artist? first top row plays track
 await page.locator('.rail a[title="Библиотека"]').click();
 await page.locator('.segmented-item:has-text("Артисты")').click();
 await shot("09-artists");

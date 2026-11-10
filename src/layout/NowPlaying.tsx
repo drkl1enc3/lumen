@@ -16,6 +16,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { coverUrl } from "../lib/covers";
+import { useCoverAccent } from "../lib/coverTheme";
 import { cx, formatTime } from "../lib/utils";
 import { tracks as allTracks } from "../lib/mock";
 import { artistByIdMap } from "../lib/mock";
@@ -56,6 +57,7 @@ export function NowPlaying() {
   const coverInCover = useSettings((s) => s.coverInCover);
   const coverVisualizer = useSettings((s) => s.coverVisualizer);
   const visualizer = useSettings((s) => s.visualizer);
+  const coverAccent = useCoverAccent();
 
   const [tab, setTab] = useState<"cover" | "lyrics">("cover");
   useEffect(() => {
@@ -75,7 +77,7 @@ export function NowPlaying() {
 
   return (
     <div className="now-playing">
-      <div className="np-bg" style={customCover ? coverImage : { backgroundImage: coverUrl(track.cover) }} />
+      <div className="np-bg" style={customCover ? coverImage : { backgroundImage: coverUrl(track.cover, coverAccent) }} />
       <Visualizer kind={visualizer} className="np-visualizer" />
       <div className="np-scrim" />
 

@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
-import { Play } from "lucide-react";
+import { ListMusic, Play } from "lucide-react";
 import type { Album, Artist, Playlist, Track } from "../lib/types";
 import { usePlayer } from "../store/player";
+import { useSettings } from "../store/settings";
 import { tracks as allTracks } from "../lib/mock";
 import { resolveTracks } from "../lib/catalog";
 import { formatCount, pluralTracks } from "../lib/utils";
@@ -11,10 +12,17 @@ import { Cover } from "./ui";
 export function PlaylistCard({ playlist }: { playlist: Playlist }) {
   const { t, i18n } = useTranslation();
   const play = usePlayer((s) => s.play);
+  const playlistCover = useSettings((s) => s.playlistCover);
   const tracks = resolveTracks(playlist.trackIds);
+  const image = playlist.coverImage ?? playlistCover ?? undefined;
   return (
     <Link to={`/playlist/${playlist.id}`} className="media-card">
-      <Cover seed={playlist.cover} className="media-card-cover">
+      <Cover seed={playlist.cover} src={image} className="media-card-cover">
+        {!image && (
+          <span className="media-card-cover-icon">
+            <ListMusic size={32} />
+          </span>
+        )}
         <button
           className="card-play"
           aria-label={t("common.play")}

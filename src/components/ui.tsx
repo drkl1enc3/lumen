@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { coverStyle } from "../lib/covers";
+import { useCoverAccent } from "../lib/coverTheme";
 import { cx } from "../lib/utils";
 import type { Source } from "../lib/types";
 
@@ -19,7 +20,8 @@ export function Cover({
   style?: CSSProperties;
   onClick?: () => void;
 }) {
-  const base = coverStyle(seed);
+  const accent = useCoverAccent();
+  const base = coverStyle(seed, accent);
   return (
     <div
       className={cx("cover", className)}
