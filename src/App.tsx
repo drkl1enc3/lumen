@@ -15,6 +15,7 @@ import { usePlayer } from "./store/player";
 import { useUI } from "./store/ui";
 import { useLibrary } from "./store/library";
 import { syncLanguage } from "./i18n";
+import { applyCustomTheme, clearCustomTheme } from "./lib/theme";
 
 function Shortcuts() {
   const navigate = useNavigate();
@@ -89,6 +90,17 @@ export default function App() {
   const animations = useSettings((s) => s.animations);
   const glass = useSettings((s) => s.glass);
   const opacity = useSettings((s) => s.opacity);
+  const themePreset = useSettings((s) => s.themePreset);
+  const customColors = useSettings((s) => s.customColors);
+  const fontFamily = useSettings((s) => s.fontFamily);
+  const fontSize = useSettings((s) => s.fontSize);
+  const radius = useSettings((s) => s.radius);
+  const scaleMode = useSettings((s) => s.scaleMode);
+  const fullscreenScale = useSettings((s) => s.fullscreenScale);
+  const windowedScale = useSettings((s) => s.windowedScale);
+  const bgImage = useSettings((s) => s.bgImage);
+  const bgImageOpacity = useSettings((s) => s.bgImageOpacity);
+  const bgTransparency = useSettings((s) => s.bgTransparency);
 
   useEffect(() => {
     syncLanguage(language);
@@ -100,8 +112,38 @@ export default function App() {
   }, [accent]);
 
   useEffect(() => {
-    document.documentElement.style.setProperty("--font-scale", String(fontScale / 100));
-  }, [fontScale]);
+    const root = document.documentElement;
+    root.dataset.theme = themePreset === "custom" ? "custom" : themePreset;
+    if (themePreset === "custom") applyCustomTheme(customColors);
+    else clearCustomTheme();
+  }, [themePreset, customColors]);
+
+  useEffect(() => {
+    const family =
+      fontFamily === "serif"
+        ? 'Georgia, "Times New Roman", serif'
+        : fontFamily === "mono"
+          ? '"JetBrains Mono", "SFMono-Regular", monospace'
+          : fontFamily === "system"
+            ? '-apple-system, "Segoe UI", system-ui, sans-serif'
+            : '"Inter Variable", "Inter", -apple-system, "Segoe UI", system-ui, sans-serif';
+    document.documentElement.style.setProperty("--font-family", family);
+  }, [fontFamily]);
+
+  useEffect(() => {
+    const modeScale = scaleMode === "fullscreen" ? fullscreenScale : windowedScale;
+    const zoom = (fontSize / 16) * (fontScale / 100) * (modeScale / 100);
+    document.documentElement.style.setProperty("--font-scale", String(zoom));
+  }, [fontScale, fontSize, scaleMode, fullscreenScale, windowedScale]);
+
+  useEffect(() => {
+    const map = { none: 0, small: 8, medium: 16, large: 24 } as const;
+    const value = map[radius];
+    const style = document.documentElement.style;
+    style.setProperty("--radius", `${value}px`);
+    style.setProperty("--radius-sm", `${Math.round(value * 0.62)}px`);
+    style.setProperty("--cover-radius", `${Math.round(value * 0.75)}px`);
+  }, [radius]);
 
   useEffect(() => {
     document.documentElement.dataset.animations = animations ? "on" : "off";
@@ -110,8 +152,16 @@ export default function App() {
   useEffect(() => {
     const style = document.documentElement.style;
     style.setProperty("--glass-blur", `${Math.round((glass / 100) * 30)}px`);
-    style.setProperty("--bg-alpha", String(0.55 + (opacity / 100) * 0.45));
-  }, [glass, opacity]);
+    style.setProperty(
+      "--bg-alpha",
+      String(
+        bgImage
+          ? Math.max(0.04, 1 - (bgTransparency / 100) * 0.96)
+          : 0.55 + (opacity / 100) * 0.45,
+      ),
+    );
+    style.setProperty("--bg-image-opacity", String(bgImageOpacity / 100));
+  }, [glass, opacity, bgImage, bgImageOpacity, bgTransparency]);
 
   useEffect(() => {
     const id = window.setInterval(() => usePlayer.getState().tick(0.25), 250);

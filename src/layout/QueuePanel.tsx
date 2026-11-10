@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { ListMusic, Trash2, X } from "lucide-react";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
+import { useSettings } from "../store/settings";
 import { TrackRow } from "../components/TrackRow";
 import { Cover, EmptyState, IconButton, PlayingBars } from "../components/ui";
 import { formatTime } from "../lib/utils";
@@ -11,6 +12,7 @@ export function QueuePanel() {
   const { t } = useTranslation();
   const open = useUI((s) => s.queueOpen);
   const toggle = useUI((s) => s.toggleQueue);
+  const showQueue = useSettings((s) => s.showQueue);
   const toast = useUI((s) => s.toast);
   const queue = usePlayer((s) => s.queue);
   const index = usePlayer((s) => s.index);
@@ -20,7 +22,7 @@ export function QueuePanel() {
   const current = queue[index];
   const upcoming = queue.slice(index + 1);
 
-  if (!open) return null;
+  if (!open || !showQueue) return null;
 
   return (
     <aside className="queue-panel">

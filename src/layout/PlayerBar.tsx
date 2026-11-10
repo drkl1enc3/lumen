@@ -25,6 +25,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { Cover, IconButton, Slider, SourceBadge } from "../components/ui";
+import { Visualizer } from "../components/Visualizer";
 import { cx, formatTime } from "../lib/utils";
 import { usePlayer } from "../store/player";
 import { useLibrary } from "../store/library";
@@ -65,6 +66,16 @@ export function PlayerBar() {
   const toggleNow = useUI((s) => s.toggleNowPlaying);
   const toggleMini = useUI((s) => s.toggleMini);
   const buttons = useSettings((s) => s.playerButtons);
+  const coverPosition = useSettings((s) => s.coverPosition);
+  const customCover = useSettings((s) => s.customCover);
+  const coverInCover = useSettings((s) => s.coverInCover);
+  const coverVisualizer = useSettings((s) => s.coverVisualizer);
+  const visualizer = useSettings((s) => s.visualizer);
+  const playerAlign = useSettings((s) => s.playerAlign);
+  const playerStyle = useSettings((s) => s.playerStyle);
+  const sliderStyle = useSettings((s) => s.sliderStyle);
+  const showQueue = useSettings((s) => s.showQueue);
+  const nextTrackPreview = useSettings((s) => s.nextTrackPreview);
 
   const speedLabel = String(Number(speed.toFixed(2))).replace(".", ",");
   const [popover, setPopover] = useState<"sleep" | "speed" | null>(null);
@@ -74,11 +85,36 @@ export function PlayerBar() {
 
   const liked = favorites.includes(track.id);
   const VolumeIcon = muted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
+  const nextTrack = queue[index + 1];
+  const coverStyle = customCover
+    ? { backgroundImage: `url(${customCover})`, backgroundSize: "cover", backgroundPosition: "center" }
+    : undefined;
 
   return (
-    <footer className="playerbar">
+    <footer
+      className={cx(
+        "playerbar",
+        `player-style-${playerStyle}`,
+        `align-${playerAlign}`,
+        `slider-style-${sliderStyle}`,
+        coverPosition === "right" && "cover-right",
+      )}
+    >
       <div className="player-left">
-        <Cover seed={track.cover} className="player-cover" />
+        <div className="player-cover-wrap">
+          <Cover seed={track.cover} className="player-cover" style={coverStyle}>
+            {coverInCover && (
+              <span className="player-cover-inset">
+                <Cover seed={nextTrack?.cover ?? track.cover} className="player-cover-mini" />
+              </span>
+            )}
+            {coverVisualizer && (
+              <span className="player-cover-viz">
+                <Visualizer kind={visualizer} compact />
+              </span>
+            )}
+          </Cover>
+        </div>
         <div className="player-meta">
           <Link to={track.albumId ? `/album/${track.albumId}` : "#"} className="player-title" title={track.title}>
             {track.title}
@@ -92,6 +128,11 @@ export function PlayerBar() {
           <div className="player-badges">
             <SourceBadge source={track.source} />
           </div>
+          {nextTrackPreview && nextTrack && (
+            <span className="player-next" title={nextTrack.title}>
+              {t("player.upNext")}: {nextTrack.title}
+            </span>
+          )}
         </div>
         {buttons.like && (
           <IconButton
@@ -245,14 +286,16 @@ export function PlayerBar() {
         <IconButton label={t("common.lyrics")} size="sm" onClick={() => toggleNow(true)}>
           <Mic2 size={17} />
         </IconButton>
-        <IconButton
-          label={t("common.queue")}
-          size="sm"
-          active={queueOpen}
-          onClick={() => toggleQueue()}
-        >
-          <ListMusic size={18} />
-        </IconButton>
+        {showQueue && (
+          <IconButton
+            label={t("common.queue")}
+            size="sm"
+            active={queueOpen}
+            onClick={() => toggleQueue()}
+          >
+            <ListMusic size={18} />
+          </IconButton>
+        )}
         <div className="volume-control">
           <IconButton label={t("common.volume")} size="sm" onClick={toggleMute}>
             <VolumeIcon size={17} />

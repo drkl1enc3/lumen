@@ -1,22 +1,27 @@
 import { useLocation, useMatch } from "react-router-dom";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Clock3,
   Home,
   LibraryBig,
   ListMusic,
+  LogIn,
   Minus,
+  Pin,
   Search,
   Settings,
   Square,
   User,
   X,
 } from "lucide-react";
-import { closeWindow, minimizeWindow, toggleMaximizeWindow } from "../lib/tauri";
+import { closeWindow, minimizeWindow, setAlwaysOnTop, toggleMaximizeWindow } from "../lib/tauri";
 import { useLibrary } from "../store/library";
 import { albumByIdMap, artistByIdMap } from "../lib/mock";
 import { IconButton } from "../components/ui";
 import { useUI } from "../store/ui";
+import { useSettings } from "../store/settings";
+import { cx } from "../lib/utils";
 
 function Logo() {
   return (
@@ -46,6 +51,12 @@ export function Titlebar() {
   const location = useLocation();
   const playlists = useLibrary((s) => s.playlists);
   const openSettings = useUI((s) => s.openSettings);
+  const setLogin = useUI((s) => s.setLogin);
+  const panel = useSettings((s) => s.panelElements);
+  const panelStyle = useSettings((s) => s.panelStyle);
+  const autoHide = useSettings((s) => s.panelAutoHide);
+  const [pinned, setPinned] = useState(false);
+  const [shown, setShown] = useState(false);
   const playlistMatch = useMatch("/playlist/:id");
   const albumMatch = useMatch("/album/:id");
   const artistMatch = useMatch("/artist/:id");
@@ -83,24 +94,45 @@ export function Titlebar() {
   }
 
   return (
-    <header
-      className="titlebar"
+    <>
+      {autoHide && <div className="titlebar-hotzone" onMouseEnter={() => setShown(true)} />}
+      <header
+      className={cx(
+        "titlebar",
+        panelStyle === "compact" && "is-compact",
+        autoHide && "is-autohide",
+        autoHide && shown && "is-shown",
+      )}
       data-tauri-drag-region
+      onMouseLeave={() => autoHide && setShown(false)}
       onDoubleClick={(e) => {
         if ((e.target as HTMLElement).closest("button")) return;
         void toggleMaximizeWindow();
       }}
     >
       <div className="titlebar-left" data-tauri-drag-region>
-        <Logo />
-        <span className="brand">Lumen</span>
-        <span className="version-chip">v0.1.0</span>
+        {panel.logo && <Logo />}
+        {panel.logo && <span className="brand">Lumen</span>}
+        {panel.version && <span className="version-chip">v0.1.0</span>}
       </div>
-      <div className="titlebar-center" data-tauri-drag-region>
-        <Icon size={14} />
-        <span>{title}</span>
-      </div>
+      {panel.title && (
+        <div className="titlebar-center" data-tauri-drag-region>
+          <Icon size={14} />
+          <span>{title}</span>
+        </div>
+      )}
+      {!panel.title && <div />}
       <div className="titlebar-right">
+        {panel.mail && (
+          <IconButton
+            label={t("nav.login")}
+            size="sm"
+            className="titlebar-action"
+            onClick={() => setLogin(true)}
+          >
+            <LogIn size={15} />
+          </IconButton>
+        )}
         <IconButton
           label={t("nav.settings")}
           size="sm"
@@ -110,17 +142,36 @@ export function Titlebar() {
           <Settings size={15} />
         </IconButton>
         <span className="window-controls">
-          <button aria-label="Minimize" onClick={() => void minimizeWindow()}>
-            <Minus size={14} />
-          </button>
-          <button aria-label="Maximize" onClick={() => void toggleMaximizeWindow()}>
-            <Square size={11} />
-          </button>
-          <button aria-label="Close" className="is-close" onClick={() => void closeWindow()}>
-            <X size={15} />
-          </button>
+          {panel.pin && (
+            <button
+              aria-label="Pin"
+              className={cx(pinned && "is-pinned")}
+              onClick={() => {
+                setPinned((v) => !v);
+                void setAlwaysOnTop(!pinned);
+              }}
+            >
+              <Pin size={13} />
+            </button>
+          )}
+          {panel.collapse && (
+            <button aria-label="Minimize" onClick={() => void minimizeWindow()}>
+              <Minus size={14} />
+            </button>
+          )}
+          {panel.expand && (
+            <button aria-label="Maximize" onClick={() => void toggleMaximizeWindow()}>
+              <Square size={11} />
+            </button>
+          )}
+          {panel.close && (
+            <button aria-label="Close" className="is-close" onClick={() => void closeWindow()}>
+              <X size={15} />
+            </button>
+          )}
         </span>
       </div>
-    </header>
+      </header>
+    </>
   );
 }

@@ -22,7 +22,9 @@ import { usePlayer } from "../store/player";
 import { useLibrary } from "../store/library";
 import { useUI } from "../store/ui";
 import { Cover, IconButton, Slider } from "../components/ui";
+import { Visualizer } from "../components/Visualizer";
 import { TrackRow } from "../components/TrackRow";
+import { useSettings } from "../store/settings";
 
 export function NowPlaying() {
   const { t } = useTranslation();
@@ -49,6 +51,10 @@ export function NowPlaying() {
 
   const favorites = useLibrary((s) => s.favorites);
   const toggleFavorite = useLibrary((s) => s.toggleFavorite);
+  const customCover = useSettings((s) => s.customCover);
+  const coverInCover = useSettings((s) => s.coverInCover);
+  const coverVisualizer = useSettings((s) => s.coverVisualizer);
+  const visualizer = useSettings((s) => s.visualizer);
 
   const [tab, setTab] = useState<"cover" | "lyrics">("cover");
   useEffect(() => {
@@ -61,13 +67,15 @@ export function NowPlaying() {
   const liked = favorites.includes(track.id);
   const related = allTracks.filter((tr) => tr.artistId === track.artistId && tr.id !== track.id).slice(0, 5);
   const context = queue.length ? queue : [track];
+  const nextTrack = queue[index + 1];
+  const coverImage = customCover
+    ? { backgroundImage: `url(${customCover})`, backgroundSize: "cover", backgroundPosition: "center" }
+    : undefined;
 
   return (
     <div className="now-playing">
-      <div
-        className="np-bg"
-        style={{ backgroundImage: coverUrl(track.cover) }}
-      />
+      <div className="np-bg" style={customCover ? coverImage : { backgroundImage: coverUrl(track.cover) }} />
+      <Visualizer kind={visualizer} className="np-visualizer" />
       <div className="np-scrim" />
 
       <header className="np-header">
@@ -93,7 +101,18 @@ export function NowPlaying() {
       <div className="np-body">
         <section className="np-main">
           <div className="np-art-wrap">
-            <Cover seed={track.cover} className="np-art" />
+            <Cover seed={track.cover} className="np-art" style={coverImage}>
+              {coverInCover && nextTrack && (
+                <span className="np-art-inset">
+                  <Cover seed={nextTrack.cover} className="np-art-mini" />
+                </span>
+              )}
+              {coverVisualizer && (
+                <span className="np-art-viz">
+                  <Visualizer kind={visualizer} />
+                </span>
+              )}
+            </Cover>
           </div>
           <div className="np-info">
             <div className="np-text">

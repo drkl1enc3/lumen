@@ -33,3 +33,21 @@ export async function closeWindow() {
     /* ignore */
   }
 }
+
+export async function setAlwaysOnTop(value: boolean) {
+  if (!isTauri) return;
+  try {
+    await (await appWindow()).setAlwaysOnTop(value);
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function setFullscreen(value: boolean) {
+  if (!isTauri) return;
+  try {
+    await (await appWindow()).setFullscreen(value);
+  } catch {
+    /* ignore */
+  }
+}
