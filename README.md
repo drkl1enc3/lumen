@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white&style=flat-square" alt="Vite" />
   <img src="https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black&style=flat-square" alt="Linux" />
   <img src="https://img.shields.io/badge/License-MIT-3DA639?style=flat-square" alt="MIT" />
-  <img src="https://img.shields.io/badge/status-0.2.0-b3a1ff?style=flat-square" alt="0.2.0" />
+  <img src="https://img.shields.io/badge/status-0.2.1-b3a1ff?style=flat-square" alt="0.2.1" />
 </p>
 
 <p align="center">
@@ -78,7 +78,7 @@
 - Рабочие переназначаемые горячие клавиши
 - Системный трей, автозапуск, MPRIS и медиаклавиши
 - Discord Rich Presence, Last.fm, deep links `lumen://`
-- Проверка обновлений и установка из GitHub Releases (в 0.2.0 временно отключена)
+- Проверка обновлений и установка из GitHub Releases (в 0.2.1 временно отключена)
 - RU / EN / UK, дисковое сохранение настроек и данных
 
 </td>
@@ -216,9 +216,9 @@ npm run tauri build
 Готовые файлы появятся в `src-tauri/target/release/bundle/`:
 
 ```
-appimage/Lumen_0.2.0_amd64.AppImage   # ~102 MB
-deb/Lumen_0.2.0_amd64.deb             # ~3.2 MB
-rpm/Lumen-0.2.0-1.x86_64.rpm          # ~3.2 MB
+appimage/Lumen_0.2.1_amd64.AppImage   # ~102 MB
+deb/Lumen_0.2.1_amd64.deb             # ~3.2 MB
+rpm/Lumen-0.2.1-1.x86_64.rpm          # ~3.2 MB
 ```
 
 Проверка типов и веб-сборка:
@@ -242,7 +242,7 @@ npm run build
 
 Схема `lumen://` регистрируется при установке и в dev-режиме. Примеры: `lumen://track/<id>`, `lumen://playlist/<id>`, `lumen://artist/<id>`.
 
-В сборке **0.2.0 автообновление временно отключено**: релиз публикуется обычными артефактами, `latest.json` и подписи не используются. Новые версии можно скачать со страницы GitHub Releases.
+В сборке **0.2.1 автообновление временно отключено**: релиз публикуется обычными артефактами, `latest.json` и подписи не используются. Новые версии можно скачать со страницы GitHub Releases.
 
 Инфраструктура для будущего включения уже есть в коде. Когда понадобится автообновление, добавьте в секреты GitHub Actions:
 
@@ -300,7 +300,7 @@ scripts/         # Playwright-проверки и генерация скрин�
 - [x] Дисковое сохранение состояния и миграция из localStorage
 - [x] «Моя волна» на локальной истории, тексты LRCLIB
 - [x] MPRIS, медиаклавиши, трей, автозапуск, Discord RPC, Last.fm, deep links
-- [ ] Автообновление (инфраструктура готова, в 0.2.0 отключено)
+- [ ] Автообновление (инфраструктура готова, в 0.2.1 отключено)
 - [x] CI и GitHub Releases
 - [x] SoundCloud / YouTube: поиск, кэш и воспроизведение через `yt-dlp` + `mpv`
 

@@ -1,6 +1,6 @@
 # Maintainer: Lumen <dev@lumen.local>
 pkgname=lumen
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc="Free music player with SoundCloud, YouTube and local library support"
 arch=('x86_64')
