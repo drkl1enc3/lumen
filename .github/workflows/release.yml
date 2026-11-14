@@ -27,9 +27,6 @@ jobs:
       - run: npm ci
       - name: Build Linux bundles
         run: npm run tauri build -- --bundles appimage,deb,rpm
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -78,8 +75,6 @@ jobs:
         run: npm run tauri build -- --bundles nsis
         env:
           CI: true
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Package portable Windows build
         shell: pwsh
         run: |
@@ -110,8 +105,10 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - name: Generate updater manifest and checksums
-        run: node scripts/make-latest-json.mjs artifacts "$GITHUB_REF_NAME" drkl1enc3/lumen
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:

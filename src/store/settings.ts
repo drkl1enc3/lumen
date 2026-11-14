@@ -136,7 +136,6 @@ export interface SettingsState {
   lastfmApiSecret: string;
   lastfmSessionKey: string;
   lastfmUsername: string;
-  checkUpdates: boolean;
   set: <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => void;
   setPlayerButton: (id: string, value: boolean) => void;
   setPanelElement: (id: PanelElement, value: boolean) => void;
@@ -271,7 +270,6 @@ const defaults = {
   lastfmApiSecret: "",
   lastfmSessionKey: "",
   lastfmUsername: "",
-  checkUpdates: true,
 };
 
 function isHotkey(value: unknown): value is Hotkey {

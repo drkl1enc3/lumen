@@ -577,6 +577,7 @@ const ru = {
   "settings.lyrics": "Тексты песен",
   "settings.lyricsHint": "Загружать текст из LRCLIB и подсвечивать текущую строку",
   "settings.updateOnlyApp": "Обновления доступны только в приложении Lumen",
+  "settings.updatesDisabled": "Автообновление временно отключено в этой сборке. Новые версии публикуются на GitHub Releases.",
 };
 
 const en: Record<string, string> = {
@@ -1154,6 +1155,7 @@ const en: Record<string, string> = {
   "settings.lyrics": "Lyrics",
   "settings.lyricsHint": "Load lyrics from LRCLIB and highlight the current line",
   "settings.updateOnlyApp": "Updates are available only in the Lumen app",
+  "settings.updatesDisabled": "Auto-update is temporarily disabled in this build. New versions are published on GitHub Releases.",
 };
 
 const uk: Record<string, string> = {
@@ -1400,6 +1402,7 @@ const uk: Record<string, string> = {
   "settings.lyrics": "Тексти пісень",
   "settings.lyricsHint": "Завантажувати текст із LRCLIB і підсвічувати поточний рядок",
   "settings.updateOnlyApp": "Оновлення доступні лише в застосунку Lumen",
+  "settings.updatesDisabled": "Автооновлення тимчасово вимкнено в цій збірці. Нові версії публікуються на GitHub Releases.",
 };
 
 void i18n.use(initReactI18next).init({

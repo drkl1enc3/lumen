@@ -68,7 +68,6 @@ import { Visualizer } from "../components/Visualizer";
 import { setFullscreen, isTauri } from "../lib/tauri";
 import { APP_VERSION } from "../lib/version";
 import { lastfmGetSession, lastfmGetToken } from "../lib/integrations";
-import { checkForUpdates, installPendingUpdate } from "../lib/updater";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -775,10 +774,6 @@ function StorageSection() {
 function AboutSection() {
   const { t } = useTranslation();
   const toast = useUI((s) => s.toast);
-  const checkUpdates = useSettings((s) => s.checkUpdates);
-  const set = useSettings((s) => s.set);
-  const [checking, setChecking] = useState(false);
-  const [installing, setInstalling] = useState(false);
 
   const openExternal = (url: string) => {
     if (isTauri) {
@@ -818,34 +813,15 @@ function AboutSection() {
         <div className="about-actions">
           <button
             className="btn btn-primary btn-sm"
-            disabled={checking || installing}
-            onClick={() => {
-              setChecking(true);
-              void checkForUpdates(true, toast).finally(() => setChecking(false));
-            }}
+            onClick={() => openExternal("https://github.com/drkl1enc3/lumen/releases")}
           >
-            {checking ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
-            {t("settings.checkNow")}
-          </button>
-          <button
-            className="btn btn-ghost btn-sm"
-            disabled={installing}
-            onClick={() => {
-              setInstalling(true);
-              void installPendingUpdate(toast).finally(() => setInstalling(false));
-            }}
-          >
-            {installing ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
-            {t("settings.installUpdate")}
+            <ExternalLink size={14} />
+            {t("settings.releases")}
           </button>
         </div>
       </div>
 
-      <Group>
-        <Row title={t("settings.checkUpdates")} hint={t("settings.checkUpdatesHint")}>
-          <Toggle checked={checkUpdates} onChange={(v) => set("checkUpdates", v)} />
-        </Row>
-      </Group>
+      <p className="settings-note">{t("settings.updatesDisabled")}</p>
 
       <Group>
         <button className="link-row" onClick={() => openExternal("https://github.com/drkl1enc3/lumen")}>

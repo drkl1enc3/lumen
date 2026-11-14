@@ -78,7 +78,7 @@
 - Рабочие переназначаемые горячие клавиши
 - Системный трей, автозапуск, MPRIS и медиаклавиши
 - Discord Rich Presence, Last.fm, deep links `lumen://`
-- Автообновление через GitHub Releases
+- Проверка обновлений и установка из GitHub Releases (в 0.2.0 временно отключена)
 - RU / EN / UK, дисковое сохранение настроек и данных
 
 </td>
@@ -242,12 +242,14 @@ npm run build
 
 Схема `lumen://` регистрируется при установке и в dev-режиме. Примеры: `lumen://track/<id>`, `lumen://playlist/<id>`, `lumen://artist/<id>`.
 
-Автообновление работает через GitHub Releases. Для сборки релиза нужен приватный ключ Tauri Signer в секретах GitHub Actions:
+В сборке **0.2.0 автообновление временно отключено**: релиз публикуется обычными артефактами, `latest.json` и подписи не используются. Новые версии можно скачать со страницы GitHub Releases.
 
-- `TAURI_SIGNING_PRIVATE_KEY` — содержимое приватного ключа (или путь)
+Инфраструктура для будущего включения уже есть в коде. Когда понадобится автообновление, добавьте в секреты GitHub Actions:
+
+- `TAURI_SIGNING_PRIVATE_KEY` — содержимое приватного ключа Tauri Signer
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — пароль ключа
 
-Публичный ключ уже прописан в `src-tauri/tauri.conf.json`.
+Публичный ключ прописан в `src-tauri/tauri.conf.json`; в конфиге нужно будет снова включить `bundle.createUpdaterArtifacts` и вернуть шаг генерации `latest.json` в release-workflow.
 
 ### Где хранятся данные
 
@@ -298,7 +300,8 @@ scripts/         # Playwright-проверки и генерация скрин�
 - [x] Дисковое сохранение состояния и миграция из localStorage
 - [x] «Моя волна» на локальной истории, тексты LRCLIB
 - [x] MPRIS, медиаклавиши, трей, автозапуск, Discord RPC, Last.fm, deep links
-- [x] Автообновление, CI и GitHub Releases
+- [ ] Автообновление (инфраструктура готова, в 0.2.0 отключено)
+- [x] CI и GitHub Releases
 - [x] SoundCloud / YouTube: поиск, кэш и воспроизведение через `yt-dlp` + `mpv`
 
 ## Правовая рамка

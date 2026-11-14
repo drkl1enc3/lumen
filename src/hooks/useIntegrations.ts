@@ -23,7 +23,6 @@ import {
   setTrayEnabled,
   updateMedia,
 } from "../lib/integrations";
-import { checkForUpdates } from "../lib/updater";
 import { flushPersistence } from "../lib/persist";
 
 function handleDeepLink(url: string) {
@@ -70,7 +69,6 @@ export function useIntegrations() {
   const equalizerBands = useSettings((state) => state.equalizerBands);
   const gapless = useSettings((state) => state.gapless);
   const autostart = useSettings((state) => state.autostart);
-  const checkUpdates = useSettings((state) => state.checkUpdates);
   const toast = useUI((state) => state.toast);
 
   const [mediaReady, setMediaReady] = useState(false);
@@ -83,7 +81,6 @@ export function useIntegrations() {
   });
   const lastfmErrorRef = useRef("");
   const discordErrorRef = useRef("");
-  const updateCheckedRef = useRef(false);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -332,9 +329,5 @@ export function useIntegrations() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!isTauri || !checkUpdates || updateCheckedRef.current) return;
-    updateCheckedRef.current = true;
-    void checkForUpdates(false, toast).catch(() => undefined);
-  }, [checkUpdates, toast]);
+
 }
