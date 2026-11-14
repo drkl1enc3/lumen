@@ -95,12 +95,13 @@ export async function searchSource(
   return result.map(toTrack);
 }
 
-export async function prepareTrack(track: Track): Promise<PreparedTrack> {
+export async function prepareTrack(track: Track, quality = "high"): Promise<PreparedTrack> {
   if (!("__TAURI_INTERNALS__" in window)) throw new Error(notTauri);
   if (!track.webpageUrl) throw new Error("У трека нет ссылки на источник");
   return invoke<PreparedTrack>("prepare_track", {
     url: track.webpageUrl,
     trackId: track.id,
+    quality,
   });
 }
 

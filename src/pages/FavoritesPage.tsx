@@ -23,7 +23,7 @@ export function FavoritesPage() {
           <p className="eyebrow">{i18n.language === "ru" ? "Коллекция" : i18n.language === "uk" ? "Колекція" : "Collection"}</p>
           <h1>{t("common.favorites")}</h1>
           <p className="collection-meta">
-            {pluralTracks(tracks.length, i18n.language)} · {formatTotalDuration(tracks)}
+            {pluralTracks(tracks.length, i18n.language)} · {formatTotalDuration(tracks, i18n.language)}
           </p>
           <div className="collection-buttons">
             <button className="btn btn-primary" disabled={!tracks.length} onClick={() => play(tracks, 0)}>

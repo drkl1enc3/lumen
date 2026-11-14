@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Album, Disc3, Heart, ListMusic, Music2, Plus, Users } from "lucide-react";
-import { albums, artists, localTracksList, tracks } from "../lib/mock";
+import { albums, artists, tracks } from "../lib/mock";
 import { resolveTracks } from "../lib/catalog";
 import { useLibrary } from "../store/library";
+import { useLocal } from "../store/local";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
 import { cx, formatTotalDuration, pluralTracks } from "../lib/utils";
@@ -21,6 +22,7 @@ export function LibraryPage() {
   const setCreate = useUI((s) => s.setCreatePlaylist);
   const play = usePlayer((s) => s.play);
   const favoriteTracks = resolveTracks(favorites);
+  const localTracks = useLocal((s) => s.tracks);
 
   const tabs: { id: Tab; label: string; icon: typeof ListMusic }[] = [
     { id: "playlists", label: t("common.playlists"), icon: ListMusic },
@@ -79,7 +81,7 @@ export function LibraryPage() {
                 {t("common.playAll")}
               </button>
               <span className="muted-count">
-                {pluralTracks(favoriteTracks.length, i18n.language)} · {formatTotalDuration(favoriteTracks)}
+                {pluralTracks(favoriteTracks.length, i18n.language)} · {formatTotalDuration(favoriteTracks, i18n.language)}
               </span>
             </div>
           </div>
@@ -99,16 +101,16 @@ export function LibraryPage() {
         <>
           <div className="collection-head">
             <span className="muted-count">
-              {pluralTracks(localTracksList.length, i18n.language)} · {formatTotalDuration(localTracksList)}
+              {pluralTracks(localTracks.length, i18n.language)} · {formatTotalDuration(localTracks, i18n.language)}
             </span>
             <button className="btn btn-ghost btn-sm" onClick={() => (window.location.hash = "#/library/local")}>
               {t("library.allTracks")}
             </button>
           </div>
-          {localTracksList.length ? (
+          {localTracks.length ? (
             <div className="track-list">
-              {localTracksList.map((tr, i) => (
-                <TrackRow key={tr.id} track={tr} index={i} context={localTracksList} />
+              {localTracks.map((tr, i) => (
+                <TrackRow key={tr.id} track={tr} index={i} context={localTracks} />
               ))}
             </div>
           ) : (

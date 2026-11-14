@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import type { Track } from "../lib/types";
+import { appStorage } from "../lib/persist";
 
 const MAX_TRACKS = 3000;
 
@@ -41,6 +42,10 @@ export const useCatalog = create<CatalogState>()(
           return { external: { ...state.external, [id]: { ...track, previewOnly: true } } };
         }),
     }),
-    { name: "lumen.catalog.v1" },
+    {
+      name: "lumen.catalog.v1",
+      storage: createJSONStorage(() => appStorage),
+      skipHydration: true,
+    },
   ),
 );

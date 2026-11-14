@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
   Heart,
+  Loader2,
   Mic2,
   MoreHorizontal,
   Pause,
@@ -18,7 +19,6 @@ import {
 import { coverUrl } from "../lib/covers";
 import { useCoverAccent } from "../lib/coverTheme";
 import { cx, formatTime } from "../lib/utils";
-import { tracks as allTracks } from "../lib/mock";
 import { artistByIdMap } from "../lib/mock";
 import { usePlayer } from "../store/player";
 import { useLibrary } from "../store/library";
@@ -27,6 +27,10 @@ import { Cover, IconButton, Slider } from "../components/ui";
 import { Visualizer } from "../components/Visualizer";
 import { TrackRow } from "../components/TrackRow";
 import { useSettings } from "../store/settings";
+import { useLocal } from "../store/local";
+import { useCatalog } from "../store/catalog";
+import { fetchLyrics, type Lyrics } from "../lib/integrations";
+import { isTauri } from "../lib/tauri";
 
 export function NowPlaying() {
   const { t } = useTranslation();
@@ -58,17 +62,89 @@ export function NowPlaying() {
   const coverVisualizer = useSettings((s) => s.coverVisualizer);
   const visualizer = useSettings((s) => s.visualizer);
   const coverAccent = useCoverAccent();
+  const lyricsEnabled = useSettings((s) => s.lyricsEnabled);
+  const localTracks = useLocal((s) => s.tracks);
+  const externalTracks = useCatalog((s) => s.external);
 
   const [tab, setTab] = useState<"cover" | "lyrics">("cover");
+  const [lyrics, setLyrics] = useState<Lyrics | null>(null);
+  const [lyricsLoading, setLyricsLoading] = useState(false);
+  const [lyricsError, setLyricsError] = useState<string | null>(null);
+  const lyricsRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (open) setTab("cover");
   }, [open]);
 
   const track = queue[index];
+  const trackId = track?.id ?? "";
+
+  useEffect(() => {
+    if (!open || tab !== "lyrics" || !track || !lyricsEnabled) {
+      setLyrics(null);
+      setLyricsError(null);
+      setLyricsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLyrics(null);
+    setLyricsError(null);
+    if (!isTauri) {
+      setLyricsError("Тексты доступны только в приложении Lumen");
+      return;
+    }
+    setLyricsLoading(true);
+    void fetchLyrics(track)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result) setLyricsError("Текст не найден");
+        else setLyrics(result);
+      })
+      .catch((error) => {
+        if (!cancelled) setLyricsError(String(error));
+      })
+      .finally(() => {
+        if (!cancelled) setLyricsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, tab, trackId, lyricsEnabled]);
+
+  const lyricLines = useMemo(() => {
+    if (!lyrics?.synced) return [];
+    const lines: { time: number; text: string }[] = [];
+    for (const raw of lyrics.synced.split("\n")) {
+      const match = raw.match(/^\[(\d+):(\d+(?:\.\d+)?)\](.*)$/);
+      if (!match) continue;
+      const time = Number(match[1]) * 60 + Number(match[2]);
+      const text = match[3].trim();
+      if (text) lines.push({ time, text });
+    }
+    return lines;
+  }, [lyrics?.synced]);
+
+  const activeLyric = useMemo(() => {
+    let index = -1;
+    for (let i = 0; i < lyricLines.length; i += 1) {
+      if (lyricLines[i].time <= progress) index = i;
+      else break;
+    }
+    return index;
+  }, [lyricLines, progress]);
+
+  useEffect(() => {
+    const container = lyricsRef.current;
+    if (!container) return;
+    const active = container.querySelector<HTMLElement>(".lyrics-line.is-active");
+    active?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [activeLyric]);
   if (!open || !track) return null;
 
   const liked = favorites.includes(track.id);
-  const related = allTracks.filter((tr) => tr.artistId === track.artistId && tr.id !== track.id).slice(0, 5);
+  const allKnown = [...localTracks, ...Object.values(externalTracks)];
+  const related = allKnown
+    .filter((tr) => tr.id !== track.id && (tr.artist === track.artist || tr.album === track.album))
+    .slice(0, 6);
   const context = queue.length ? queue : [track];
   const nextTrack = queue[index + 1];
   const coverImage = customCover
@@ -195,19 +271,35 @@ export function NowPlaying() {
           </div>
 
           {tab === "lyrics" ? (
-            <div className="np-lyrics">
-              <p className="np-lyrics-placeholder">{t("player.lyricsPlaceholder")}</p>
-              <div className="lyrics-lines" aria-hidden>
-                <span style={{ width: "72%" }} />
-                <span style={{ width: "88%" }} />
-                <span style={{ width: "54%" }} />
-                <span style={{ width: "80%" }} />
-                <span style={{ width: "62%" }} />
-                <span style={{ width: "90%" }} />
-                <span style={{ width: "44%" }} />
-                <span style={{ width: "76%" }} />
-                <span style={{ width: "68%" }} />
-              </div>
+            <div className="np-lyrics" ref={lyricsRef}>
+              {!lyricsEnabled ? (
+                <p className="np-lyrics-placeholder">{t("player.lyricsDisabled")}</p>
+              ) : lyricsLoading ? (
+                <p className="np-lyrics-placeholder">
+                  <Loader2 size={16} className="spin" /> {t("player.lyricsLoading")}
+                </p>
+              ) : lyricLines.length ? (
+                <div className="lyrics-lines is-synced">
+                  {lyricLines.map((line, index) => (
+                    <p
+                      key={`${line.time}-${index}`}
+                      className={cx("lyrics-line", index === activeLyric && "is-active")}
+                    >
+                      {line.text}
+                    </p>
+                  ))}
+                </div>
+              ) : lyrics?.plain ? (
+                <div className="lyrics-lines is-plain">
+                  {lyrics.plain.split("\n").map((line, index) => (
+                    <p key={index} className="lyrics-line">{line || " "}</p>
+                  ))}
+                </div>
+              ) : (
+                <p className="np-lyrics-placeholder">
+                  {lyricsError ?? t("player.lyricsPlaceholder")}
+                </p>
+              )}
             </div>
           ) : (
             <div className="np-related">
@@ -225,9 +317,11 @@ export function NowPlaying() {
                   />
                 ))
               )}
-              <button className="np-related-play" onClick={() => playTrack(related[0], related)}>
-                {t("common.playAll")}
-              </button>
+              {related.length > 0 && (
+                <button className="np-related-play" onClick={() => playTrack(related[0], related)}>
+                  {t("common.playAll")}
+                </button>
+              )}
             </div>
           )}
         </section>

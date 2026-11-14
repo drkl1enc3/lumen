@@ -7,11 +7,12 @@ export function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function formatLongTime(seconds: number): string {
+export function formatLongTime(seconds: number, language = "ru"): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h} ч ${m} мин`;
-  return `${m} мин`;
+  if (language === "en") return h > 0 ? `${h} h ${m} min` : `${m} min`;
+  if (language === "uk") return h > 0 ? `${h} год ${m} хв` : `${m} хв`;
+  return h > 0 ? `${h} ч ${m} мин` : `${m} мин`;
 }
 
 export function formatCount(n: number): string {
@@ -20,9 +21,9 @@ export function formatCount(n: number): string {
   return String(n);
 }
 
-export function formatTotalDuration(tracks: Track[]): string {
+export function formatTotalDuration(tracks: Track[], language = "ru"): string {
   const total = tracks.reduce((acc, t) => acc + t.duration, 0);
-  return formatLongTime(total);
+  return formatLongTime(total, language);
 }
 
 export function pluralTracks(n: number, lang: string): string {

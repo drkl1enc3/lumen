@@ -1,0 +1,119 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev rpm
+      - run: npm ci
+      - name: Build Linux bundles
+        run: npm run tauri build -- --bundles appimage,deb,rpm
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumen-linux
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/appimage/*
+            src-tauri/target/release/bundle/deb/*
+            src-tauri/target/release/bundle/rpm/*
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Download Windows runtime tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bin = "src-tauri/resources/windows/bin"
+          New-Item -ItemType Directory -Force -Path $bin | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "$bin/yt-dlp.exe"
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
+          Expand-Archive -LiteralPath "ffmpeg.zip" -DestinationPath "ffmpeg" -Force
+          $ffmpeg = Get-ChildItem "ffmpeg" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          $ffprobe = Get-ChildItem "ffmpeg" -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
+          Copy-Item $ffmpeg.FullName "$bin/ffmpeg.exe"
+          Copy-Item $ffprobe.FullName "$bin/ffprobe.exe"
+          choco install mpv -y --no-progress
+          $mpv = (Get-Command mpv.exe -ErrorAction SilentlyContinue).Source
+          if (-not $mpv) {
+            $mpv = (Get-ChildItem "C:\ProgramData\chocolatey\lib\mpv" -Recurse -Filter "mpv.exe" | Select-Object -First 1).FullName
+          }
+          if (-not $mpv) { throw "mpv.exe not found" }
+          Copy-Item $mpv "$bin/mpv.exe"
+      - name: Build Windows app and NSIS installer
+        run: npm run tauri build -- --bundles nsis
+        env:
+          CI: true
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Package portable Windows build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          New-Item -ItemType Directory -Force -Path "portable" | Out-Null
+          Copy-Item "src-tauri/target/release/lumen.exe" "portable/Lumen.exe"
+          Copy-Item -Recurse "src-tauri/resources/windows/bin" "portable/bin"
+          Compress-Archive -Path "portable/*" -DestinationPath "Lumen_${version}_x64-portable.zip" -Force
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumen-windows
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/nsis/*
+            Lumen_*_x64-portable.zip
+
+  publish:
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Generate updater manifest and checksums
+        run: node scripts/make-latest-json.mjs artifacts "$GITHUB_REF_NAME" drkl1enc3/lumen
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/**/*

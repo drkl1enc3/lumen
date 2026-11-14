@@ -1,0 +1,26 @@
+# Maintainer: Lumen <dev@lumen.local>
+pkgname=lumen
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Free music player with SoundCloud, YouTube and local library support"
+arch=('x86_64')
+url="https://github.com/drkl1enc3/lumen"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'libappindicator-gtk3' 'mpv' 'yt-dlp' 'ffmpeg')
+makedepends=('nodejs' 'npm' 'rust' 'patchelf')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$srcdir/lumen-$pkgver"
+  npm ci
+  npm run tauri build -- --no-bundle
+}
+
+package() {
+  cd "$srcdir/lumen-$pkgver"
+  install -Dm755 src-tauri/target/release/lumen "$pkgdir/usr/bin/lumen"
+  install -Dm644 packaging/lumen.desktop "$pkgdir/usr/share/applications/lumen.desktop"
+  install -Dm644 app-icon.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/lumen.png"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

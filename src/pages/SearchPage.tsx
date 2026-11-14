@@ -10,6 +10,7 @@ import type { Source, Track } from "../lib/types";
 import { detectMediaSource, searchSource } from "../lib/sources";
 import { isTauri } from "../lib/tauri";
 import { useCatalog } from "../store/catalog";
+import { useLocal } from "../store/local";
 
 type Tab = "tracks" | "albums" | "artists" | "playlists";
 type SourceFilter = "all" | Source;
@@ -46,6 +47,7 @@ export function SearchPage() {
   const [remoteState, setRemoteState] = useState<RemoteState>("idle");
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const requestSeq = useRef(0);
+  const localTracks = useLocal((s) => s.tracks);
 
   const remoteWanted =
     source === "all" || source === "soundcloud" || source === "youtube";
@@ -101,21 +103,22 @@ export function SearchPage() {
 
   const localResults = useMemo(() => {
     const base = searchCatalog(query);
-    if (source === "all") return base;
-    if (source === "audius") {
-      return {
-        ...base,
-        tracks: base.tracks.filter((track) => track.source === "audius"),
-        albums: base.albums.filter((album) => album.source === "audius"),
-        playlists: base.playlists.filter(
-          (playlist) => playlist.source === "audius" || playlist.source === "mixed",
-        ),
-      };
+    const text = query.trim().toLowerCase();
+    const localMatches = text
+      ? localTracks.filter(
+          (track) =>
+            track.title.toLowerCase().includes(text) ||
+            track.artist.toLowerCase().includes(text) ||
+            (track.album ?? "").toLowerCase().includes(text),
+        )
+      : [];
+    if (source === "all") {
+      return { ...base, tracks: [...localMatches, ...base.tracks] };
     }
     if (source === "local") {
       return {
         ...base,
-        tracks: base.tracks.filter((track) => track.source === "local"),
+        tracks: localMatches,
         albums: base.albums.filter((album) => album.source === "local"),
         artists: [],
         playlists: base.playlists.filter(
@@ -124,7 +127,7 @@ export function SearchPage() {
       };
     }
     return { tracks: [], albums: [], artists: [], playlists: [] };
-  }, [query, source]);
+  }, [query, source, localTracks]);
 
   const urlSource = detectMediaSource(query.trim());
   const remoteResults = useMemo(
@@ -155,7 +158,6 @@ export function SearchPage() {
     { id: "all", label: t("search.allSources") },
     { id: "soundcloud", label: t("search.soundcloud") },
     { id: "youtube", label: t("search.youtube") },
-    { id: "audius", label: t("search.audius") },
     { id: "local", label: t("search.local") },
   ];
 

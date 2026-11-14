@@ -24,6 +24,7 @@ import {
   Keyboard,
   LayoutGrid,
   ListMusic,
+  Loader2,
   Mail,
   Maximize2,
   Minus,
@@ -38,6 +39,7 @@ import {
   Plus,
   RotateCcw,
   RotateCw,
+  RefreshCw,
   Settings2,
   Shuffle,
   SlidersHorizontal,
@@ -54,14 +56,25 @@ import {
 } from "lucide-react";
 import type { SettingsTab } from "../lib/types";
 import { cx, formatBytes } from "../lib/utils";
-import { useSettings, type Hotkey, type PanelElement } from "../store/settings";
+import { fileToDataUrl, imageLimits } from "../lib/images";
+import { eventToHotkey, prettyHotkey } from "../lib/hotkeys";
+import { defaultHotkeys, useSettings, type Hotkey, type PanelElement } from "../store/settings";
+import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
 import { useSources } from "../store/sources";
+import { useLocal } from "../store/local";
 import { IconButton, Select, Slider, Toggle } from "../components/ui";
 import { Visualizer } from "../components/Visualizer";
-import { setFullscreen } from "../lib/tauri";
+import { setFullscreen, isTauri } from "../lib/tauri";
+import { APP_VERSION } from "../lib/version";
+import { lastfmGetSession, lastfmGetToken } from "../lib/integrations";
+import { checkForUpdates, installPendingUpdate } from "../lib/updater";
+import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type {
   CustomColors,
+  EqualizerPreset,
   FontFamily,
   ParticleKind,
   Radius,
@@ -163,16 +176,19 @@ function ImagePicker({
   label,
   hint,
   aspect,
+  kind = "cover",
 }: {
   value: string | null;
   onChange: (value: string | null) => void;
   label: string;
   hint: string;
   aspect?: "square" | "wide";
+  kind?: keyof typeof imageLimits;
 }) {
   const { t } = useTranslation();
   const input = useRef<HTMLInputElement>(null);
   const toast = useUI((s) => s.toast);
+  const [busy, setBusy] = useState(false);
 
   return (
     <Row title={label} hint={hint}>
@@ -183,8 +199,12 @@ function ImagePicker({
             style={{ backgroundImage: `url(${value})` }}
           />
         )}
-        <button className="btn btn-ghost btn-sm" onClick={() => input.current?.click()}>
-          <ImageIcon size={14} />
+        <button
+          className="btn btn-ghost btn-sm"
+          disabled={busy}
+          onClick={() => input.current?.click()}
+        >
+          {busy ? <Loader2 size={14} className="spin" /> : <ImageIcon size={14} />}
           {t("settings.chooseImage")}
         </button>
         {value && (
@@ -206,11 +226,13 @@ function ImagePicker({
           hidden
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => onChange(String(reader.result ?? ""));
-            reader.readAsDataURL(file);
             e.target.value = "";
+            if (!file) return;
+            setBusy(true);
+            void fileToDataUrl(file, imageLimits[kind])
+              .then((dataUrl) => onChange(dataUrl))
+              .catch((error) => toast(String(error), "error"))
+              .finally(() => setBusy(false));
           }}
         />
       </div>
@@ -327,17 +349,11 @@ function HotkeysSection() {
         setEditing(null);
         return;
       }
-      const parts: string[] = [];
-      if (e.ctrlKey) parts.push("Ctrl");
-      if (e.altKey) parts.push("Alt");
-      if (e.shiftKey) parts.push("Shift");
-      if (e.metaKey) parts.push("Meta");
-      const key = e.key === " " ? "Space" : e.key.length === 1 ? e.key.toUpperCase() : e.key;
-      if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
-      parts.push(key);
+      const keys = eventToHotkey(e);
+      if (!keys) return;
       set(
         "hotkeys",
-        hotkeys.map((h) => (h.action === editing ? { ...h, keys: parts.join(" ") } : h)),
+        hotkeys.map((h) => (h.action === editing ? { ...h, keys } : h)),
       );
       setEditing(null);
     };
@@ -364,11 +380,13 @@ function HotkeysSection() {
                 {editing === h.action ? (
                   <span className="hotkey-capture">{t("settings.hotkeysPress")}</span>
                 ) : (
-                  h.keys.split(" ").map((k) => (
-                    <kbd key={k} className="keycap">
-                      {k}
-                    </kbd>
-                  ))
+                  prettyHotkey(h.keys)
+                    .split(" ")
+                    .map((k, index) => (
+                      <kbd key={`${k}-${index}`} className="keycap">
+                        {k}
+                      </kbd>
+                    ))
                 )}
               </button>
             </div>
@@ -377,19 +395,7 @@ function HotkeysSection() {
         <div className="hotkey-footer">
           <button
             className="btn btn-ghost btn-sm"
-            onClick={() =>
-              set("hotkeys", [
-                { action: "playPause", keys: "Space" },
-                { action: "next", keys: "Ctrl →" },
-                { action: "prev", keys: "Ctrl ←" },
-                { action: "volumeUp", keys: "Ctrl ↑" },
-                { action: "volumeDown", keys: "Ctrl ↓" },
-                { action: "search", keys: "Ctrl K" },
-                { action: "like", keys: "L" },
-                { action: "queue", keys: "Q" },
-                { action: "settings", keys: "Ctrl ," },
-              ])
-            }
+            onClick={() => set("hotkeys", defaultHotkeys.map((item) => ({ ...item })))}
           >
             <RotateCcw size={14} />
             {t("settings.hotkeysReset")}
@@ -400,14 +406,265 @@ function HotkeysSection() {
   );
 }
 
+function IntegrationsSection() {
+  const { t } = useTranslation();
+  const settings = useSettings();
+  const set = settings.set;
+  const sources = useSources();
+  const toast = useUI((s) => s.toast);
+  const [lastfmBusy, setLastfmBusy] = useState(false);
+  const [lastfmPolling, setLastfmPolling] = useState(false);
+  const lastfmCancelled = useRef(false);
+
+  useEffect(() => {
+    lastfmCancelled.current = false;
+    return () => {
+      lastfmCancelled.current = true;
+    };
+  }, []);
+
+  const connectLastfm = async () => {
+    if (!isTauri) {
+      toast(t("library.localOnlyApp"), "error");
+      return;
+    }
+    if (!settings.lastfmApiKey.trim() || !settings.lastfmApiSecret.trim()) {
+      toast(t("settings.lastfmNeedKeys"), "error");
+      return;
+    }
+    setLastfmBusy(true);
+    try {
+      const token = await lastfmGetToken(settings.lastfmApiKey, settings.lastfmApiSecret);
+      const url = `https://www.last.fm/api/auth/?api_key=${encodeURIComponent(
+        settings.lastfmApiKey,
+      )}&token=${encodeURIComponent(token)}`;
+      await openUrl(url);
+      toast(t("settings.lastfmBrowser"), "info");
+      setLastfmPolling(true);
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        if (lastfmCancelled.current) return;
+        try {
+          const session = await lastfmGetSession(
+            settings.lastfmApiKey,
+            settings.lastfmApiSecret,
+            token,
+          );
+          set("lastfmSessionKey", session.sessionKey);
+          set("lastfmUsername", session.username);
+          set("lastfm", true);
+          toast(t("settings.lastfmConnectedToast", { user: session.username }), "success");
+          return;
+        } catch {
+          // The user may still be confirming access in the browser.
+        }
+      }
+      toast(t("settings.lastfmTimeout"), "error");
+    } catch (error) {
+      toast(String(error), "error");
+    } finally {
+      setLastfmBusy(false);
+      setLastfmPolling(false);
+    }
+  };
+
+  const disconnectLastfm = () => {
+    set("lastfm", false);
+    set("lastfmSessionKey", "");
+    set("lastfmUsername", "");
+    toast(t("settings.lastfmDisconnected"), "info");
+  };
+
+  return (
+    <>
+      <Group title={t("settings.sources")}>
+        <Row title="yt-dlp" hint={t("settings.sourceToolsHint")}>
+          <span className={cx("tool-status", sources.status && !sources.status.ytdlp && "is-missing")}>
+            {sources.status ? sources.status.ytdlp?.version ?? t("settings.notFound") : "—"}
+          </span>
+        </Row>
+        <Row title="ffmpeg" hint={t("settings.sourceToolsHint")}>
+          <span className={cx("tool-status", sources.status && !sources.status.ffmpeg && "is-missing")}>
+            {sources.status ? sources.status.ffmpeg?.version ?? t("settings.notFound") : "—"}
+          </span>
+        </Row>
+        <Row title="mpv" hint={t("settings.sourceToolsHint")}>
+          <span className={cx("tool-status", sources.status && !sources.status.mpv && "is-missing")}>
+            {sources.status ? sources.status.mpv?.version ?? t("settings.notFound") : "—"}
+          </span>
+        </Row>
+        <Row
+          title={t("settings.sourceCache")}
+          hint={
+            sources.cache
+              ? `${formatBytes(sources.cache.bytes)} · ${sources.cache.files}`
+              : t("settings.sourceCacheHint")
+          }
+        >
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={sources.refreshing}
+            onClick={() => {
+              void sources.clear().then((ok) => {
+                if (ok) toast(t("toast.cacheCleared"), "success");
+              });
+            }}
+          >
+            {t("settings.clearCache")}
+          </button>
+        </Row>
+        {sources.error && (
+          <Row title={t("settings.sourceError")} hint={sources.error}>
+            <button className="btn btn-ghost btn-sm" onClick={() => void sources.refresh()}>
+              {t("settings.refresh")}
+            </button>
+          </Row>
+        )}
+      </Group>
+
+      <Group title="Discord Rich Presence">
+        <Row title={t("settings.discord")} hint={t("settings.discordHint")}>
+          <Toggle checked={settings.discord} onChange={(v) => set("discord", v)} />
+        </Row>
+        <Row title={t("settings.discordAppId")} hint={t("settings.discordAppIdHint")} stacked>
+          <input
+            className="setting-input"
+            value={settings.discordAppId}
+            placeholder="123456789012345678"
+            spellCheck={false}
+            onChange={(event) => set("discordAppId", event.target.value.trim())}
+          />
+        </Row>
+        <Row
+          title={t("settings.discordTrack")}
+          hint={t("settings.discordTrackHint")}
+          disabled={!settings.discord}
+        >
+          <Toggle
+            checked={settings.discordShowTrack}
+            onChange={(v) => set("discordShowTrack", v)}
+          />
+        </Row>
+      </Group>
+
+      <Group title={t("settings.system")}>
+        <Row title={t("settings.mpris")} hint={t("settings.mprisHint")}>
+          <Toggle checked={settings.mpris} onChange={(v) => set("mpris", v)} />
+        </Row>
+        <Row title={t("settings.tray")} hint={t("settings.trayHint")}>
+          <Toggle checked={settings.tray} onChange={(v) => set("tray", v)} />
+        </Row>
+        <Row title={t("settings.deeplinks")} hint={t("settings.deeplinksHint")}>
+          <Toggle checked={settings.deeplinks} onChange={(v) => set("deeplinks", v)} />
+        </Row>
+      </Group>
+
+      <Group title="Last.fm">
+        <Row title={t("settings.lastfm")} hint={t("settings.lastfmHint")}>
+          <Toggle checked={settings.lastfm} onChange={(v) => set("lastfm", v)} />
+        </Row>
+        <Row title={t("settings.lastfmApiKey")} hint={t("settings.lastfmApiKeyHint")} stacked>
+          <input
+            className="setting-input"
+            value={settings.lastfmApiKey}
+            placeholder="API key"
+            spellCheck={false}
+            onChange={(event) => set("lastfmApiKey", event.target.value.trim())}
+          />
+        </Row>
+        <Row title={t("settings.lastfmApiSecret")} hint={t("settings.lastfmApiSecretHint")} stacked>
+          <input
+            className="setting-input"
+            type="password"
+            value={settings.lastfmApiSecret}
+            placeholder="Shared secret"
+            onChange={(event) => set("lastfmApiSecret", event.target.value.trim())}
+          />
+        </Row>
+        <Row
+          title={settings.lastfmUsername ? `@${settings.lastfmUsername}` : t("settings.lastfmAccount")}
+          hint={
+            settings.lastfmSessionKey
+              ? t("settings.lastfmConnected")
+              : t("settings.lastfmNotConnected")
+          }
+        >
+          <div className="inline-actions">
+            {settings.lastfmSessionKey ? (
+              <button className="btn btn-ghost btn-sm" onClick={disconnectLastfm}>
+                {t("settings.disconnect")}
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={lastfmBusy || !settings.lastfmApiKey || !settings.lastfmApiSecret}
+                onClick={() => void connectLastfm()}
+              >
+                {lastfmBusy ? <Loader2 size={14} className="spin" /> : null}
+                {lastfmPolling ? t("settings.lastfmWaiting") : t("settings.connect")}
+              </button>
+            )}
+          </div>
+        </Row>
+      </Group>
+    </>
+  );
+}
+
 function StorageSection() {
   const { t } = useTranslation();
   const cacheLimit = useSettings((s) => s.cacheLimit);
+  const downloadFolder = useSettings((s) => s.downloadFolder);
+  const set = useSettings((s) => s.set);
+  const cache = useSources((s) => s.cache);
+  const status = useSources((s) => s.status);
+  const refreshing = useSources((s) => s.refreshing);
+  const sourceError = useSources((s) => s.error);
+  const refresh = useSources((s) => s.refresh);
+  const clear = useSources((s) => s.clear);
+  const folders = useLocal((s) => s.folders);
+  const scanning = useLocal((s) => s.scanning);
+  const addFolders = useLocal((s) => s.addFolders);
+  const removeFolder = useLocal((s) => s.removeFolder);
+  const scan = useLocal((s) => s.scan);
   const toast = useUI((s) => s.toast);
-  const [used, setUsed] = useState(1.42);
-  const [folders, setFolders] = useState(["~/Music", "~/Downloads/Music"]);
+  const [statePath, setStatePath] = useState("");
 
-  const pct = Math.min(100, (used / (cacheLimit / 1024)) * 100);
+  useEffect(() => {
+    if (!isTauri) return;
+    void invoke<string>("state_path").then(setStatePath).catch(() => undefined);
+  }, []);
+
+  const used = cache?.bytes ?? status?.cacheBytes ?? 0;
+  const limitBytes = Math.max(1, cacheLimit * 1024 * 1024);
+  const pct = Math.min(100, (used / limitBytes) * 100);
+
+  const chooseFolders = async () => {
+    if (!isTauri) {
+      toast(t("library.localOnlyApp"), "error");
+      return;
+    }
+    try {
+      const selected = await openDialog({ directory: true, multiple: true });
+      if (!selected) return;
+      addFolders(Array.isArray(selected) ? selected : [selected]);
+    } catch (error) {
+      toast(String(error), "error");
+    }
+  };
+
+  const chooseDownloadFolder = async () => {
+    if (!isTauri) {
+      toast(t("library.localOnlyApp"), "error");
+      return;
+    }
+    try {
+      const selected = await openDialog({ directory: true, multiple: false });
+      if (typeof selected === "string") set("downloadFolder", selected);
+    } catch (error) {
+      toast(String(error), "error");
+    }
+  };
 
   return (
     <>
@@ -419,22 +676,40 @@ function StorageSection() {
               <p className="usage-hint">{t("settings.cacheUsageHint")}</p>
             </div>
             <span className="usage-value">
-              {used.toFixed(1)} GB / {(cacheLimit / 1024).toFixed(0)} GB
+              {formatBytes(used)} / {formatBytes(limitBytes)}
             </span>
           </div>
           <div className="usage-bar">
             <span style={{ width: `${pct}%` }} />
           </div>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => {
-              setUsed(0);
-              toast(t("toast.cacheCleared"), "success");
-            }}
-          >
-            <Trash2 size={14} />
-            {t("settings.clearCache")}
-          </button>
+          <div className="storage-actions">
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={refreshing}
+              onClick={() => void refresh()}
+            >
+              <RefreshCw size={14} className={refreshing ? "spin" : undefined} />
+              {t("settings.refresh")}
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={refreshing || used === 0}
+              onClick={() => {
+                void clear().then((ok) => {
+                  if (ok) toast(t("toast.cacheCleared"), "success");
+                });
+              }}
+            >
+              <Trash2 size={14} />
+              {t("settings.clearCache")}
+            </button>
+          </div>
+          {(cache?.dir || status?.cacheDir) && (
+            <p className="usage-path" title={cache?.dir ?? status?.cacheDir}>
+              {cache?.dir ?? status?.cacheDir}
+            </p>
+          )}
+          {sourceError && <p className="usage-error">{sourceError}</p>}
         </div>
       </Group>
 
@@ -444,36 +719,53 @@ function StorageSection() {
             {folders.map((folder) => (
               <div className="folder-row" key={folder}>
                 <FolderOpen size={16} />
-                <span className="folder-path">{folder}</span>
+                <span className="folder-path" title={folder}>{folder}</span>
                 <button
                   className="folder-remove"
                   aria-label={t("settings.removeFolder")}
-                  onClick={() => setFolders((f) => f.filter((x) => x !== folder))}
+                  onClick={() => removeFolder(folder)}
                 >
                   <X size={14} />
                 </button>
               </div>
             ))}
-            <button
-              className="folder-add"
-              onClick={() => {
-                setFolders((f) => [...f, `~/Music/Library ${f.length + 1}`]);
-                toast(t("toast.folderAdded"), "success");
-              }}
-            >
-              <Plus size={15} />
-              {t("settings.addFolder")}
+            <div className="folder-actions">
+              <button className="folder-add" onClick={() => void chooseFolders()}>
+                <Plus size={15} />
+                {t("settings.addFolder")}
+              </button>
+              {folders.length > 0 && (
+                <button className="btn btn-ghost btn-sm" disabled={scanning} onClick={() => void scan()}>
+                  <RefreshCw size={14} className={scanning ? "spin" : undefined} />
+                  {scanning ? t("library.scanning") : t("library.rescan")}
+                </button>
+              )}
+            </div>
+          </div>
+        </Row>
+      </Group>
+
+      <Group title={t("settings.downloads")}>
+        <Row title={t("settings.downloadFolder")} hint={t("settings.downloadFolderHint")} stacked>
+          <div className="folder-actions">
+            <span className="folder-path">{downloadFolder ?? t("settings.defaultDownloads")}</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => void chooseDownloadFolder()}>
+              <FolderOpen size={14} />
+              {t("settings.chooseFolder")}
             </button>
+            {downloadFolder && (
+              <button className="btn btn-ghost btn-sm" onClick={() => set("downloadFolder", null)}>
+                <RotateCcw size={14} />
+                {t("settings.resetFolder")}
+              </button>
+            )}
           </div>
         </Row>
       </Group>
 
       <Group>
-        <Row title={t("settings.dbSize")} hint={t("settings.dbSizeHint")}>
-          <span className="setting-value">48,3 MB</span>
-        </Row>
-        <Row title={t("settings.downloads")} hint={t("settings.downloadsHint")}>
-          <span className="setting-value">12 · 380 MB</span>
+        <Row title={t("settings.settingsFile")} hint={t("settings.settingsFileHint")} stacked>
+          <code className="folder-path">{statePath || "—"}</code>
         </Row>
       </Group>
     </>
@@ -485,8 +777,16 @@ function AboutSection() {
   const toast = useUI((s) => s.toast);
   const checkUpdates = useSettings((s) => s.checkUpdates);
   const set = useSettings((s) => s.set);
-  const beta = useSettings((s) => s.betaChannel);
   const [checking, setChecking] = useState(false);
+  const [installing, setInstalling] = useState(false);
+
+  const openExternal = (url: string) => {
+    if (isTauri) {
+      void openUrl(url).catch((error) => toast(String(error), "error"));
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
 
   return (
     <>
@@ -512,52 +812,56 @@ function AboutSection() {
         <div className="about-text">
           <h3>Lumen</h3>
           <p>
-            {t("settings.version")} 0.1.0 · UI Preview
+            {t("settings.version")} {APP_VERSION}
           </p>
         </div>
-        <button
-          className="btn btn-primary btn-sm"
-          disabled={checking}
-          onClick={() => {
-            setChecking(true);
-            setTimeout(() => {
-              setChecking(false);
-              toast(t("toast.noUpdate"));
-            }, 900);
-          }}
-        >
-          {t("settings.checkNow")}
-        </button>
+        <div className="about-actions">
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={checking || installing}
+            onClick={() => {
+              setChecking(true);
+              void checkForUpdates(true, toast).finally(() => setChecking(false));
+            }}
+          >
+            {checking ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+            {t("settings.checkNow")}
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={installing}
+            onClick={() => {
+              setInstalling(true);
+              void installPendingUpdate(toast).finally(() => setInstalling(false));
+            }}
+          >
+            {installing ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
+            {t("settings.installUpdate")}
+          </button>
+        </div>
       </div>
 
       <Group>
         <Row title={t("settings.checkUpdates")} hint={t("settings.checkUpdatesHint")}>
           <Toggle checked={checkUpdates} onChange={(v) => set("checkUpdates", v)} />
         </Row>
-        <Row title={t("settings.channel")}>
-          <Select
-            value={beta ? "beta" : "stable"}
-            onChange={(v) => set("betaChannel", v === "beta")}
-            options={[
-              { value: "stable", label: t("settings.stable") },
-              { value: "beta", label: t("settings.beta") },
-            ]}
-          />
-        </Row>
       </Group>
 
       <Group>
-        <button className="link-row" onClick={() => toast("https://lumen.fun")}>
-          <ExternalLink size={15} />
-          {t("settings.website")}
-          <span>lumen.fun</span>
-        </button>
-        <button className="link-row" onClick={() => toast("github.com/lumen-player/lumen")}>
+        <button className="link-row" onClick={() => openExternal("https://github.com/drkl1enc3/lumen")}>
           <ExternalLink size={15} />
           {t("settings.source")}
-          <span>github.com/lumen-player</span>
+          <span>github.com/drkl1enc3/lumen</span>
         </button>
-        <button className="link-row" onClick={() => toast("MIT · OFL · Apache-2.0")}>
+        <button
+          className="link-row"
+          onClick={() => openExternal("https://github.com/drkl1enc3/lumen/releases")}
+        >
+          <ExternalLink size={15} />
+          {t("settings.releases")}
+          <span>GitHub Releases</span>
+        </button>
+        <button className="link-row" onClick={() => openExternal("https://github.com/drkl1enc3/lumen/blob/main/LICENSE")}>
           <ExternalLink size={15} />
           {t("settings.licenses")}
           <span>MIT</span>
@@ -575,6 +879,17 @@ const themePresets = [
   { id: "midnight" as ThemePreset, label: "settings.themeMidnight", bg: "#050b1a", fg: "#dfe8ff", accent: "#5eead4" },
   { id: "custom" as ThemePreset, label: "settings.themeCustom", bg: "#141019", fg: "#f4efff", accent: "#ff8fd8" },
 ];
+
+const equalizerPresets: { id: EqualizerPreset; label: string; bands: number[] }[] = [
+  { id: "flat", label: "Flat", bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+  { id: "bass", label: "Bass", bands: [7, 6, 5, 3, 1, 0, 0, 0, 0, 0] },
+  { id: "vocal", label: "Vocal", bands: [-2, -1, 1, 3, 5, 5, 3, 1, 0, -1] },
+  { id: "rock", label: "Rock", bands: [5, 4, 2, -1, -2, 0, 2, 3, 4, 5] },
+  { id: "pop", label: "Pop", bands: [-1, 1, 3, 4, 3, 1, -1, -1, 1, 2] },
+  { id: "jazz", label: "Jazz", bands: [3, 2, 1, 2, -1, -1, 0, 1, 2, 3] },
+];
+
+const equalizerFrequencies = ["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
 
 const particleItems: { value: ParticleKind; label: string; icon: ReactNode }[] = [
   { value: "off", label: "particle.off", icon: <X size={17} /> },
@@ -621,6 +936,8 @@ export function SettingsOverlay() {
 
   const settings = useSettings();
   const sources = useSources();
+  const playerSpeed = usePlayer((s) => s.speed);
+  const setPlayerSpeed = usePlayer((s) => s.setSpeed);
   const set = settings.set;
   const setPlayerButton = settings.setPlayerButton;
   const setPanelElement = settings.setPanelElement;
@@ -638,13 +955,11 @@ export function SettingsOverlay() {
   const buttonItems = [
     { id: "volume", label: t("settings.volume") },
     { id: "equalizer", label: t("settings.equalizer") },
-    { id: "fullCover", label: t("settings.fullCover") },
     { id: "playlist", label: t("settings.playlistBtn") },
     { id: "like", label: t("settings.likeBtn") },
     { id: "source", label: t("settings.sourceBtn") },
     { id: "sleepTimer", label: t("settings.sleepBtn") },
     { id: "download", label: t("settings.downloadBtn") },
-    { id: "ratings", label: t("settings.ratingsBtn") },
     { id: "speed", label: t("settings.speedBtn") },
   ];
 
@@ -682,7 +997,7 @@ export function SettingsOverlay() {
               <Icon size={19} />
             </button>
           ))}
-          <span className="settings-rail-version">v0.1.0</span>
+          <span className="settings-rail-version">v{APP_VERSION}</span>
         </aside>
 
         <div className="settings-content">
@@ -714,14 +1029,8 @@ export function SettingsOverlay() {
                   </Row>
                 </Group>
                 <Group title={t("settings.queueGroup")}>
-                  <Row title={t("settings.similar")} hint={t("settings.similarHint")}>
-                    <Toggle checked={settings.similarTracks} onChange={(v) => set("similarTracks", v)} />
-                  </Row>
                   <Row title={t("settings.restoreQueue")} hint={t("settings.restoreQueueHint")}>
                     <Toggle checked={settings.restoreQueue} onChange={(v) => set("restoreQueue", v)} />
-                  </Row>
-                  <Row title={t("settings.compactQueue")} hint={t("settings.compactQueueHint")}>
-                    <Toggle checked={settings.compactQueue} onChange={(v) => set("compactQueue", v)} />
                   </Row>
                 </Group>
               </>
@@ -933,6 +1242,7 @@ export function SettingsOverlay() {
               <>
                 <Group title={t("settings.background")}>
                   <ImagePicker
+                    kind="background"
                     value={settings.bgImage}
                     onChange={(v) => set("bgImage", v)}
                     label={t("settings.bgImage")}
@@ -981,6 +1291,7 @@ export function SettingsOverlay() {
                     </div>
                   </Row>
                   <ImagePicker
+                    kind="particle"
                     value={settings.particleImage}
                     onChange={(v) => set("particleImage", v)}
                     label={t("settings.particleImage")}
@@ -1130,6 +1441,7 @@ export function SettingsOverlay() {
             {tab === "cover" && (
               <Group title={t("settings.cover")}>
                 <ImagePicker
+                  kind="cover"
                   value={settings.customCover}
                   onChange={(v) => set("customCover", v)}
                   label={t("settings.coverCustom")}
@@ -1165,6 +1477,7 @@ export function SettingsOverlay() {
               <>
                 <Group title={t("settings.playlists")}>
                   <ImagePicker
+                    kind="cover"
                     value={settings.playlistCover}
                     onChange={(v) => set("playlistCover", v)}
                     label={t("settings.playlistCover")}
@@ -1241,9 +1554,6 @@ export function SettingsOverlay() {
                   <Row title={t("settings.nextPreview")} hint={t("settings.nextPreviewHint")}>
                     <Toggle checked={settings.nextTrackPreview} onChange={(v) => set("nextTrackPreview", v)} />
                   </Row>
-                  <Row title={t("settings.compactQueue")} hint={t("settings.compactQueueHint")}>
-                    <Toggle checked={settings.compactQueue} onChange={(v) => set("compactQueue", v)} />
-                  </Row>
                 </Group>
               </>
             )}
@@ -1316,18 +1626,6 @@ export function SettingsOverlay() {
                 </Group>
 
                 <Group title={t("settings.playback")}>
-                  <Row title={t("settings.crossfade")} hint={t("settings.crossfadeHint")}>
-                    <div className="inline-slider">
-                      <Slider
-                        min={0}
-                        max={12}
-                        step={1}
-                        value={settings.crossfade}
-                        onChange={(v) => set("crossfade", v)}
-                      />
-                      <span className="setting-value">{settings.crossfade} s</span>
-                    </div>
-                  </Row>
                   <Row title={t("settings.gapless")} hint={t("settings.gaplessHint")}>
                     <Toggle checked={settings.gapless} onChange={(v) => set("gapless", v)} />
                   </Row>
@@ -1340,23 +1638,72 @@ export function SettingsOverlay() {
                         min={0.5}
                         max={2}
                         step={0.05}
-                        value={settings.playbackSpeed}
-                        onChange={(v) => set("playbackSpeed", v)}
+                        value={playerSpeed}
+                        onChange={setPlayerSpeed}
                       />
-                      <span className="setting-value">{settings.playbackSpeed.toFixed(2)}×</span>
+                      <span className="setting-value">{playerSpeed.toFixed(2)}×</span>
                     </div>
                   </Row>
                   <Row title={t("settings.equalizer")} hint={t("settings.equalizerHint")}>
-                    <button className="btn btn-ghost btn-sm" onClick={() => toast(t("toast.demoNotice"))}>
-                      {t("settings.equalizer")}
-                    </button>
+                    <Toggle
+                      checked={settings.equalizerEnabled}
+                      onChange={(v) => set("equalizerEnabled", v)}
+                    />
+                  </Row>
+                  {settings.equalizerEnabled && (
+                    <Row title={t("settings.equalizerBands")} stacked>
+                      <div className="eq-presets">
+                        {equalizerPresets.map((preset) => (
+                          <button
+                            key={preset.id}
+                            className={cx(
+                              "eq-preset",
+                              settings.equalizerPreset === preset.id && "is-active",
+                            )}
+                            onClick={() => {
+                              set("equalizerPreset", preset.id);
+                              set("equalizerBands", [...preset.bands]);
+                            }}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="eq-bands">
+                        {settings.equalizerBands.map((gain, index) => (
+                          <label className="eq-band" key={equalizerFrequencies[index]}>
+                            <span>{equalizerFrequencies[index]}</span>
+                            <input
+                              type="range"
+                              min={-12}
+                              max={12}
+                              step={1}
+                              value={gain}
+                              onChange={(event) => {
+                                const bands = [...settings.equalizerBands];
+                                bands[index] = Number(event.target.value);
+                                set("equalizerBands", bands);
+                                set("equalizerPreset", "flat");
+                              }}
+                            />
+                            <span>{gain > 0 ? `+${gain}` : gain}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </Row>
+                  )}
+                </Group>
+
+                <Group title={t("settings.lyrics")}>
+                  <Row title={t("settings.lyrics")} hint={t("settings.lyricsHint")}>
+                    <Toggle
+                      checked={settings.lyricsEnabled}
+                      onChange={(v) => set("lyricsEnabled", v)}
+                    />
                   </Row>
                 </Group>
 
                 <Group title={t("settings.cache")}>
-                  <Row title={t("settings.cache")} hint={t("settings.cacheHint")}>
-                    <Toggle checked={settings.cacheEnabled} onChange={(v) => set("cacheEnabled", v)} />
-                  </Row>
                   <Row title={t("settings.cacheLimit")}>
                     <Select
                       value={String(settings.cacheLimit)}
@@ -1372,84 +1719,7 @@ export function SettingsOverlay() {
             )}
 
             {tab === "hotkeys" && <HotkeysSection />}
-            {tab === "integrations" && (
-              <>
-                <Group title={t("settings.sources")}>
-                  <Row title="yt-dlp" hint={t("settings.sourceToolsHint")}>
-                    <span className={cx("tool-status", sources.status && !sources.status.ytdlp && "is-missing")}>
-                      {sources.status ? sources.status.ytdlp?.version ?? t("settings.notFound") : "—"}
-                    </span>
-                  </Row>
-                  <Row title="ffmpeg" hint={t("settings.sourceToolsHint")}>
-                    <span className={cx("tool-status", sources.status && !sources.status.ffmpeg && "is-missing")}>
-                      {sources.status ? sources.status.ffmpeg?.version ?? t("settings.notFound") : "—"}
-                    </span>
-                  </Row>
-                  <Row title="mpv" hint={t("settings.sourceToolsHint")}>
-                    <span className={cx("tool-status", sources.status && !sources.status.mpv && "is-missing")}>
-                      {sources.status ? sources.status.mpv?.version ?? t("settings.notFound") : "—"}
-                    </span>
-                  </Row>
-                  <Row title={t("settings.sourceCache")} hint={sources.cache ? `${formatBytes(sources.cache.bytes)} · ${sources.cache.files}` : t("settings.sourceCacheHint")}>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      disabled={sources.refreshing}
-                      onClick={() => {
-                        void sources.clear().then((ok) => {
-                          if (ok) toast(t("toast.cacheCleared"), "success");
-                        });
-                      }}
-                    >
-                      {t("settings.clearCache")}
-                    </button>
-                  </Row>
-                  {sources.error && (
-                    <Row title={t("settings.sourceError")} hint={sources.error}>
-                      <button className="btn btn-ghost btn-sm" onClick={() => void sources.refresh()}>
-                        {t("settings.refresh")}
-                      </button>
-                    </Row>
-                  )}
-                </Group>
-                <Group title={t("settings.integrations")}>
-                  <Row title={t("settings.discord")} hint={t("settings.discordHint")}>
-                    <Toggle checked={settings.discord} onChange={(v) => set("discord", v)} />
-                  </Row>
-                  <Row
-                    title={t("settings.discordTrack")}
-                    hint={t("settings.discordTrackHint")}
-                    disabled={!settings.discord}
-                  >
-                    <Toggle checked={settings.discordShowTrack} onChange={(v) => set("discordShowTrack", v)} />
-                  </Row>
-                </Group>
-                <Group>
-                  <Row title={t("settings.mpris")} hint={t("settings.mprisHint")}>
-                    <Toggle checked={settings.mpris} onChange={(v) => set("mpris", v)} />
-                  </Row>
-                  <Row title={t("settings.tray")} hint={t("settings.trayHint")}>
-                    <Toggle checked={settings.tray} onChange={(v) => set("tray", v)} />
-                  </Row>
-                  <Row title={t("settings.deeplinks")} hint={t("settings.deeplinksHint")}>
-                    <Toggle checked={settings.deeplinks} onChange={(v) => set("deeplinks", v)} />
-                  </Row>
-                </Group>
-                <Group title="Last.fm">
-                  <Row title={t("settings.lastfm")} hint={t("settings.lastfmHint")}>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      disabled={settings.lastfm}
-                      onClick={() => {
-                        set("lastfm", true);
-                        toast(t("settings.connected"), "success");
-                      }}
-                    >
-                      {settings.lastfm ? t("settings.connected") : t("settings.connect")}
-                    </button>
-                  </Row>
-                </Group>
-              </>
-            )}
+            {tab === "integrations" && <IntegrationsSection />}
             {tab === "storage" && <StorageSection />}
             {tab === "about" && <AboutSection />}
           </div>

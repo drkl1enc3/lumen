@@ -1,12 +1,14 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, ListPlus, Play, Plus, Share2, User } from "lucide-react";
+import { Download, Heart, ListPlus, Play, Plus, Share2, User } from "lucide-react";
 import { resolveTrack } from "../lib/catalog";
 import { artistByIdMap } from "../lib/mock";
 import { useUI } from "../store/ui";
 import { usePlayer } from "../store/player";
 import { useLibrary } from "../store/library";
 import { useTranslation } from "react-i18next";
+import { useSettings } from "../store/settings";
+import { downloadTrack } from "../lib/integrations";
 
 export function ContextMenu() {
   const menu = useUI((s) => s.contextMenu);
@@ -16,6 +18,8 @@ export function ContextMenu() {
   const playTrack = usePlayer((s) => s.playTrack);
   const append = usePlayer((s) => s.queue);
   const favorites = useLibrary((s) => s.favorites);
+  const downloadQuality = useSettings((s) => s.downloadQuality);
+  const downloadFolder = useSettings((s) => s.downloadFolder);
   const toggleFavorite = useLibrary((s) => s.toggleFavorite);
   const navigate = useNavigate();
   const ref = useRef<HTMLDivElement>(null);
@@ -61,7 +65,11 @@ export function ContextMenu() {
     <div className="context-menu" style={{ left: x, top: y }} ref={ref} role="menu">
       {item(<Play size={15} />, t("common.play"), () => playTrack(track))}
       {item(<ListPlus size={15} />, t("common.addToQueue"), () => {
-        usePlayer.setState({ queue: [...append, track] });
+        if (append.length) {
+          usePlayer.setState({ queue: [...append, track] });
+        } else {
+          usePlayer.getState().play([track], 0);
+        }
         toast(t("toast.addedToQueue"));
       })}
       {item(<Plus size={15} />, t("common.addToPlaylist"), () => setAddToPlaylist(track.id))}
@@ -80,6 +88,17 @@ export function ContextMenu() {
         void navigator.clipboard?.writeText(track.webpageUrl ?? `https://lumen.fun/track/${track.id}`).catch(() => undefined);
         toast(t("toast.copied"));
       })}
+      {track.webpageUrl &&
+        item(<Download size={15} />, t("common.download"), () => {
+          void downloadTrack({
+            url: track.webpageUrl!,
+            trackId: track.id,
+            quality: downloadQuality,
+            folder: downloadFolder,
+          })
+            .then((path) => toast(t("toast.downloaded", { path }), "success"))
+            .catch((error) => toast(String(error), "error"));
+        })}
     </div>
   );
 }

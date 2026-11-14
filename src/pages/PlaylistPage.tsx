@@ -10,6 +10,7 @@ import { useUI } from "../store/ui";
 import { Cover, EmptyState, IconButton, Modal, ModalHeader } from "../components/ui";
 import { TrackRow } from "../components/TrackRow";
 import { formatTotalDuration, pluralTracks } from "../lib/utils";
+import { fileToDataUrl, imageLimits } from "../lib/images";
 
 export function PlaylistPage() {
   const { id } = useParams();
@@ -79,12 +80,12 @@ export function PlaylistPage() {
             const file = event.target.files?.[0];
             event.target.value = "";
             if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-              setPlaylistCover(playlist.id, String(reader.result ?? ""));
-              toast(t("toast.coverUpdated"), "success");
-            };
-            reader.readAsDataURL(file);
+            void fileToDataUrl(file, imageLimits.cover)
+              .then((dataUrl) => {
+                setPlaylistCover(playlist.id, dataUrl);
+                toast(t("toast.coverUpdated"), "success");
+              })
+              .catch((error) => toast(String(error), "error"));
           }}
         />
         <div className="collection-info">
@@ -99,7 +100,7 @@ export function PlaylistPage() {
                 {t("playlist.createdBy")} {playlist.author} ·{" "}
               </>
             )}
-            {pluralTracks(tracks.length, i18n.language)} · {formatTotalDuration(tracks)}
+            {pluralTracks(tracks.length, i18n.language)} · {formatTotalDuration(tracks, i18n.language)}
           </p>
           <div className="collection-buttons">
             <button className="btn btn-primary" disabled={!tracks.length} onClick={() => play(tracks, 0)}>
@@ -216,7 +217,7 @@ export function PlaylistPage() {
       )}
 
       <div className="library-footer">
-        <span>{t("playlist.totalTime")}: {formatTotalDuration(tracks)}</span>
+        <span>{t("playlist.totalTime")}: {formatTotalDuration(tracks, i18n.language)}</span>
         <button className="link-button" onClick={() => setCreate(true)}>
           <Plus size={13} />
           {t("library.newPlaylist")}

@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white&style=flat-square" alt="Vite" />
   <img src="https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux&logoColor=black&style=flat-square" alt="Linux" />
   <img src="https://img.shields.io/badge/License-MIT-3DA639?style=flat-square" alt="MIT" />
-  <img src="https://img.shields.io/badge/status-UI%20preview-b3a1ff?style=flat-square" alt="UI preview" />
+  <img src="https://img.shields.io/badge/status-0.2.0-b3a1ff?style=flat-square" alt="0.2.0" />
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@
 ---
 
 > [!IMPORTANT]
-> Это **UI-превью с рабочим звуком для онлайн-источников**. SoundCloud и YouTube ищутся и воспроизводятся на этой машине через `yt-dlp` + `mpv`. Сборка стартует с пустой библиотекой: без демо-треков и плейлистов. Добавляйте музыку через поиск и создавайте плейлисты сами. Локальные файлы и Audius появятся на следующем этапе.
+> Это полноценный музыкальный плеер: SoundCloud и YouTube воспроизводятся через `yt-dlp` + `mpv`, локальная фонотека сканируется по выбранным папкам. Настройки, очередь и библиотека сохраняются в JSON-файлы в папке данных приложения и переживают перезапуск. Сборка стартует с пустой библиотекой — добавьте музыку через поиск или локальные папки.
 
 ## Возможности
 
@@ -52,11 +52,12 @@
 
 **Плеер**
 - Очередь, shuffle, repeat / repeat-one, перемотка и громкость
-- Скорость воспроизведения и таймер сна
+- Скорость воспроизведения и таймер сна с обратным отсчётом
 - Мини-плеер: 3 стиля, перетаскивание
-- Now Playing: большая обложка, похожие треки, текст
-- Контекстное меню трека и диалоги добавления в плейлист
-- Реальное воспроизведение SoundCloud / YouTube через `yt-dlp` + `mpv`
+- Now Playing: большая обложка, похожие треки, текст из LRCLIB с подсветкой строки
+- Контекстное меню, добавление в плейлист, скачивание трека
+- Реальное воспроизведение SoundCloud / YouTube и локальных файлов
+- Эквалайзер, нормализация, gapless
 
 </td>
 </tr>
@@ -74,9 +75,11 @@
 
 **Система**
 - Собственный frameless titlebar и управление окном
-- Рабочие горячие клавиши с переназначением
-- Разделы интеграций: Discord RPC, MPRIS, трей, deep links
-- RU / EN / UK, настройки сохраняются между запусками
+- Рабочие переназначаемые горячие клавиши
+- Системный трей, автозапуск, MPRIS и медиаклавиши
+- Discord Rich Presence, Last.fm, deep links `lumen://`
+- Автообновление через GitHub Releases
+- RU / EN / UK, дисковое сохранение настроек и данных
 
 </td>
 </tr>
@@ -193,10 +196,12 @@ sudo pacman -S yt-dlp ffmpeg mpv
 
 `yt-dlp` ищет и скачивает треки, `ffmpeg` помогает с контейнерами, `mpv` воспроизводит аудио. Статус инструментов и размер кэша видны в **Настройки → Интеграции → Источники**.
 
+Для Arch Linux в репозитории есть `packaging/PKGBUILD`: соберите пакет командой `makepkg -si` из папки `packaging`.
+
 Windows-установщик уже содержит `yt-dlp`, `ffmpeg` и `mpv`; при необходимости он также скачивает и устанавливает WebView2. Портативная Windows-сборка поставляется архивом вместе с этими инструментами.
 
 ```bash
-git clone git@github.com:drkl1enc3/lumen.git
+git clone https://github.com/drkl1enc3/lumen.git
 cd lumen
 npm install
 npm run tauri dev
@@ -211,9 +216,9 @@ npm run tauri build
 Готовые файлы появятся в `src-tauri/target/release/bundle/`:
 
 ```
-appimage/Lumen_0.1.0_amd64.AppImage   # ~102 MB
-deb/Lumen_0.1.0_amd64.deb             # ~3.2 MB
-rpm/Lumen-0.1.0-1.x86_64.rpm          # ~3.2 MB
+appimage/Lumen_0.2.0_amd64.AppImage   # ~102 MB
+deb/Lumen_0.2.0_amd64.deb             # ~3.2 MB
+rpm/Lumen-0.2.0-1.x86_64.rpm          # ~3.2 MB
 ```
 
 Проверка типов и веб-сборка:
@@ -222,6 +227,36 @@ rpm/Lumen-0.1.0-1.x86_64.rpm          # ~3.2 MB
 npm run check
 npm run build
 ```
+
+## Интеграции
+
+### Discord Rich Presence
+
+Создайте приложение в [Discord Developer Portal](https://discord.com/developers/applications), скопируйте **Application ID** и вставьте его в **Настройки → Интеграции**. Включать RPC нужно вручную; без корректного ID приложение продолжит работать без Discord.
+
+### Last.fm
+
+Создайте API-приложение на [last.fm/api/account/create](https://www.last.fm/api/account/create), вставьте **API key** и **shared secret** в **Настройки → Интеграции**, нажмите «Подключить» и подтвердите доступ в браузере. После этого Lumen отправляет now playing и scrobble после 50% трека (или 4 минут).
+
+### Deep links и автообновление
+
+Схема `lumen://` регистрируется при установке и в dev-режиме. Примеры: `lumen://track/<id>`, `lumen://playlist/<id>`, `lumen://artist/<id>`.
+
+Автообновление работает через GitHub Releases. Для сборки релиза нужен приватный ключ Tauri Signer в секретах GitHub Actions:
+
+- `TAURI_SIGNING_PRIVATE_KEY` — содержимое приватного ключа (или путь)
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — пароль ключа
+
+Публичный ключ уже прописан в `src-tauri/tauri.conf.json`.
+
+### Где хранятся данные
+
+Настройки, очередь, локальная фонотека и каталог лежат в JSON-файлах в папке данных приложения:
+
+- Linux: `~/.local/share/fun.lumen.app/state/`
+- Windows: `%APPDATA%\fun.lumen.app\state\`
+
+Их можно удалить для полного сброса; при следующем запуске приложение создаст чистые файлы.
 
 ## Горячие клавиши
 
@@ -259,11 +294,11 @@ scripts/         # Playwright-проверки и генерация скрин�
 - [x] 13 разделов настроек и глубокая кастомизация
 - [x] Темы, фон, частицы, визуализаторы, стили плеера и обложек
 - [x] Сборка AppImage / deb / rpm
-- [ ] Аудиоядро для локальных файлов и Audius (демо-каталог пока без звука)
-- [ ] SQLite вместо localStorage, импорт и сканирование фонотеки
-- [ ] «Моя волна» на реальной истории, тексты LRCLIB
-- [ ] MPRIS, медиаклавиши, трей, Discord RPC, deep links
-- [ ] GitHub Releases и CI
+- [x] Локальные файлы: папки, сканирование, метаданные и воспроизведение
+- [x] Дисковое сохранение состояния и миграция из localStorage
+- [x] «Моя волна» на локальной истории, тексты LRCLIB
+- [x] MPRIS, медиаклавиши, трей, автозапуск, Discord RPC, Last.fm, deep links
+- [x] Автообновление, CI и GitHub Releases
 - [x] SoundCloud / YouTube: поиск, кэш и воспроизведение через `yt-dlp` + `mpv`
 
 ## Правовая рамка

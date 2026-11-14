@@ -133,7 +133,12 @@ fn read_events(reader: IpcStream, app: AppHandle) {
     );
 }
 
-fn start_mpv(slot: &mut Option<MpvProcess>, app: &AppHandle) -> Result<(), String> {
+fn start_mpv(
+    slot: &mut Option<MpvProcess>,
+    app: &AppHandle,
+    audio_filter: &str,
+    gapless: bool,
+) -> Result<(), String> {
     let mpv = find_binary("mpv")
         .ok_or_else(|| "mpv не найден. Установите mpv и добавьте его в PATH".to_string())?;
     let socket = ipc_address();
@@ -153,6 +158,15 @@ fn start_mpv(slot: &mut Option<MpvProcess>, app: &AppHandle) -> Result<(), Strin
         .arg("--keep-open=no")
         .arg("--pause=yes")
         .arg("--load-scripts=no")
+        .arg(format!(
+            "--gapless-audio={}",
+            if gapless { "yes" } else { "no" }
+        ))
+        .arg("--audio-client-name=Lumen");
+    if !audio_filter.is_empty() {
+        command.arg(format!("--af={audio_filter}"));
+    }
+    command
         .arg(format!("--input-ipc-server={socket}"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -214,7 +228,13 @@ where
             let _ = process.child.wait();
             cleanup_ipc(&process.socket);
         }
-        start_mpv(&mut slot, app)?;
+        let audio_filter = state
+            .audio_filters
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_default();
+        let gapless = state.gapless.load(std::sync::atomic::Ordering::Relaxed);
+        start_mpv(&mut slot, app, &audio_filter, gapless)?;
     }
 
     let process = slot.as_mut().ok_or("mpv не запущен")?;
@@ -240,15 +260,21 @@ pub fn shutdown(state: &AppState) {
     }
 }
 
-fn ensure_cache_path(state: &AppState, path: &str) -> Result<PathBuf, String> {
-    let canonical =
-        std::fs::canonicalize(path).map_err(|e| format!("Файл не найден в кэше: {e}"))?;
-    let cache = std::fs::canonicalize(&state.cache_dir)
-        .map_err(|e| format!("Папка кэша недоступна: {e}"))?;
-    if !canonical.starts_with(&cache) {
-        return Err("Можно воспроизводить только файлы из кэша Lumen".to_string());
+fn ensure_playable_path(state: &AppState, path: &str) -> Result<PathBuf, String> {
+    let canonical = std::fs::canonicalize(path).map_err(|e| format!("Файл не найден: {e}"))?;
+    if let Ok(cache) = std::fs::canonicalize(&state.cache_dir) {
+        if canonical.starts_with(&cache) {
+            return Ok(canonical);
+        }
     }
-    Ok(canonical)
+    let roots = state
+        .local_roots
+        .lock()
+        .map_err(|_| "Список локальных папок заблокирован".to_string())?;
+    if roots.iter().any(|root| canonical.starts_with(root)) {
+        return Ok(canonical);
+    }
+    Err("Файл находится вне разрешённых папок Lumen".to_string())
 }
 
 #[tauri::command]
@@ -262,7 +288,7 @@ pub fn play_file(
     muted: Option<bool>,
     speed: Option<f64>,
 ) -> Result<(), String> {
-    let path = ensure_cache_path(&state, &path)?;
+    let path = ensure_playable_path(&state, &path)?;
     with_mpv(&state, &app, |process| {
         send_command(
             &mut process.writer,
@@ -341,6 +367,82 @@ pub fn set_speed(state: State<'_, AppState>, app: AppHandle, speed: f64) -> Resu
         send_command(
             &mut process.writer,
             json!(["set_property", "speed", speed.clamp(0.25, 4.0)]),
+        )
+    })
+}
+
+fn with_running_mpv<F>(state: &AppState, action: F) -> Result<(), String>
+where
+    F: FnOnce(&mut MpvProcess) -> Result<(), String>,
+{
+    let mut slot = state
+        .mpv
+        .lock()
+        .map_err(|_| "mpv заблокирован".to_string())?;
+    let Some(process) = slot.as_mut() else {
+        return Ok(());
+    };
+    if !matches!(process.child.try_wait(), Ok(None)) {
+        return Ok(());
+    }
+    action(process)
+}
+
+#[tauri::command]
+pub fn set_audio_filters(
+    state: State<'_, AppState>,
+    normalize: bool,
+    equalizer_enabled: bool,
+    bands: Vec<f64>,
+) -> Result<(), String> {
+    let frequencies = [
+        31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
+    ];
+    let mut filters: Vec<String> = Vec::new();
+    if equalizer_enabled {
+        for (index, frequency) in frequencies.iter().enumerate() {
+            let gain = bands.get(index).copied().unwrap_or(0.0).clamp(-12.0, 12.0);
+            if gain.abs() > 0.01 {
+                filters.push(format!(
+                    "equalizer=f={frequency}:width_type=o:width=1:g={gain:.1}"
+                ));
+            }
+        }
+    }
+    if normalize {
+        filters.push("loudnorm=I=-16:LRA=11:TP=-1.5".to_string());
+    }
+    let filter = if filters.is_empty() {
+        String::new()
+    } else {
+        format!("lavfi=[{}]", filters.join(","))
+    };
+    if let Ok(mut current) = state.audio_filters.lock() {
+        *current = filter.clone();
+    }
+
+    with_running_mpv(&state, |process| {
+        if filter.is_empty() {
+            send_command(&mut process.writer, json!(["af", "clr"]))
+        } else {
+            send_command(&mut process.writer, json!(["set_property", "af", filter]))
+        }
+    })
+}
+
+#[tauri::command]
+pub fn set_gapless(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    state
+        .gapless
+        .store(enabled, std::sync::atomic::Ordering::Relaxed);
+    with_running_mpv(&state, |process| {
+        send_command(
+            &mut process.writer,
+            json!([
+                "set_property",
+                "gapless-audio",
+                if enabled { "yes" } else { "no" }
+            ]),
         )
     })
 }

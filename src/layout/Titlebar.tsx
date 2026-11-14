@@ -24,6 +24,7 @@ import { IconButton } from "../components/ui";
 import { useUI } from "../store/ui";
 import { useSettings } from "../store/settings";
 import { cx } from "../lib/utils";
+import { APP_VERSION } from "../lib/version";
 
 function Logo() {
   return (
@@ -123,7 +124,7 @@ export function Titlebar() {
       <div className="titlebar-left" data-tauri-drag-region>
         {panel.logo && <Logo />}
         {panel.logo && <span className="brand">Lumen</span>}
-        {panel.version && <span className="version-chip">v0.1.0</span>}
+        {panel.version && <span className="version-chip">v{APP_VERSION}</span>}
       </div>
       {panel.title && (
         <div className="titlebar-center" data-tauri-drag-region>

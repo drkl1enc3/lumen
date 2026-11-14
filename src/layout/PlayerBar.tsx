@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -28,7 +28,9 @@ import {
 import { Cover, IconButton, Slider, SourceBadge } from "../components/ui";
 import { Visualizer } from "../components/Visualizer";
 import { artistByIdMap } from "../lib/mock";
-import { isExternalTrack } from "../lib/catalog";
+import { isDemoTrack } from "../lib/catalog";
+import { downloadTrack, onFileDownloadProgress } from "../lib/integrations";
+import { isTauri } from "../lib/tauri";
 import { cx, formatTime } from "../lib/utils";
 import { usePlayer } from "../store/player";
 import { useLibrary } from "../store/library";
@@ -47,6 +49,7 @@ export function PlayerBar() {
   const repeat = usePlayer((s) => s.repeat);
   const speed = usePlayer((s) => s.speed);
   const sleepTimer = usePlayer((s) => s.sleepTimer);
+  const sleepEndsAt = usePlayer((s) => s.sleepEndsAt);
   const loading = usePlayer((s) => s.loading);
   const loadProgress = usePlayer((s) => s.loadProgress);
 
@@ -70,6 +73,7 @@ export function PlayerBar() {
   const queueOpen = useUI((s) => s.queueOpen);
   const toggleNow = useUI((s) => s.toggleNowPlaying);
   const toggleMini = useUI((s) => s.toggleMini);
+  const openSettings = useUI((s) => s.openSettings);
   const buttons = useSettings((s) => s.playerButtons);
   const coverPosition = useSettings((s) => s.coverPosition);
   const customCover = useSettings((s) => s.customCover);
@@ -81,11 +85,40 @@ export function PlayerBar() {
   const sliderStyle = useSettings((s) => s.sliderStyle);
   const showQueue = useSettings((s) => s.showQueue);
   const nextTrackPreview = useSettings((s) => s.nextTrackPreview);
+  const downloadQuality = useSettings((s) => s.downloadQuality);
+  const downloadFolder = useSettings((s) => s.downloadFolder);
 
   const speedLabel = String(Number(speed.toFixed(2))).replace(".", ",");
   const [popover, setPopover] = useState<"sleep" | "speed" | null>(null);
-
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [now, setNow] = useState(Date.now());
   const track = queue[index];
+
+  useEffect(() => {
+    if (!sleepEndsAt) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [sleepEndsAt]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void onFileDownloadProgress((progress) => {
+      if (progress.trackId !== track?.id) return;
+      setDownloadProgress(progress.percent);
+      if (progress.phase === "done") setDownloading(false);
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [track?.id]);
+
   if (!track) return null;
 
   const liked = favorites.includes(track.id);
@@ -139,7 +172,7 @@ export function PlayerBar() {
           )}
           <div className="player-badges">
             <SourceBadge source={track.source} />
-            {!isExternalTrack(track) && <span className="player-demo">{t("player.demo")}</span>}
+            {isDemoTrack(track) && <span className="player-demo">{t("player.demo")}</span>}
             {loading && (
               <span className="player-loading">
                 <Loader2 size={11} className="spin" />
@@ -225,18 +258,50 @@ export function PlayerBar() {
       <div className="player-right">
         {buttons.source && <SourceBadge source={track.source} />}
         {buttons.equalizer && (
-          <IconButton label={t("settings.equalizer")} size="sm" onClick={() => toast(t("settings.equalizer"))}>
+          <IconButton
+            label={t("settings.equalizer")}
+            size="sm"
+            onClick={() => openSettings("playback")}
+          >
             <SlidersHorizontal size={16} />
           </IconButton>
         )}
         {buttons.download && (
-          <IconButton label={t("common.download")} size="sm" onClick={() => toast(t("toast.demoNotice"))}>
-            <Download size={16} />
-          </IconButton>
-        )}
-        {buttons.ratings && (
-          <IconButton label={t("settings.ratingsBtn")} size="sm" onClick={() => toast(t("toast.demoNotice"))}>
-            <ThumbsUp size={16} />
+          <IconButton
+            label={
+              downloading && downloadProgress > 0
+                ? `${Math.round(downloadProgress)}%`
+                : t("common.download")
+            }
+            size="sm"
+            disabled={downloading || !track.webpageUrl}
+            onClick={() => {
+              if (!track.webpageUrl) {
+                toast(t("toast.downloadUnavailable"), "error");
+                return;
+              }
+              if (!isTauri) {
+                toast(t("library.localOnlyApp"), "error");
+                return;
+              }
+              setDownloading(true);
+              setDownloadProgress(0);
+              void downloadTrack({
+                url: track.webpageUrl,
+                trackId: track.id,
+                quality: downloadQuality,
+                folder: downloadFolder,
+              })
+                .then((path) => toast(t("toast.downloaded", { path }), "success"))
+                .catch((error) => toast(String(error), "error"))
+                .finally(() => setDownloading(false));
+            }}
+          >
+            {downloading ? (
+              <Loader2 size={16} className="spin" />
+            ) : (
+              <Download size={16} />
+            )}
           </IconButton>
         )}
         {buttons.sleepTimer && (
@@ -251,7 +316,12 @@ export function PlayerBar() {
             </IconButton>
             {popover === "sleep" && (
               <div className="popover" onMouseLeave={() => setPopover(null)}>
-                <p className="popover-title">{t("player.sleepTimer")}</p>
+                <p className="popover-title">
+                  {t("player.sleepTimer")}
+                  {sleepEndsAt
+                    ? ` · ${formatTime(Math.max(0, Math.ceil((sleepEndsAt - now) / 1000)))}`
+                    : ""}
+                </p>
                 {[15, 30, 45, 60].map((m) => (
                   <button
                     key={m}
@@ -323,17 +393,19 @@ export function PlayerBar() {
             <ListMusic size={18} />
           </IconButton>
         )}
-        <div className="volume-control">
-          <IconButton label={t("common.volume")} size="sm" onClick={toggleMute}>
-            <VolumeIcon size={17} />
-          </IconButton>
-          <Slider
-            ariaLabel={t("common.volume")}
-            className="volume-slider"
-            value={muted ? 0 : volume}
-            onChange={(v) => setVolume(v)}
-          />
-        </div>
+        {buttons.volume && (
+          <div className="volume-control">
+            <IconButton label={t("common.volume")} size="sm" onClick={toggleMute}>
+              <VolumeIcon size={17} />
+            </IconButton>
+            <Slider
+              ariaLabel={t("common.volume")}
+              className="volume-slider"
+              value={muted ? 0 : volume}
+              onChange={(v) => setVolume(v)}
+            />
+          </div>
+        )}
         <IconButton label={t("nav.miniPlayer")} size="sm" onClick={() => toggleMini()}>
           <Minimize2 size={16} />
         </IconButton>

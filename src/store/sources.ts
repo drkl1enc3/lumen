@@ -4,9 +4,11 @@ import {
   clearCache,
   getCacheInfo,
   getSourceStatus,
+  stopMpv,
   type CacheInfo,
   type SourceStatus,
 } from "../lib/sources";
+import { usePlayer } from "./player";
 
 interface SourcesState {
   status: SourceStatus | null;
@@ -36,6 +38,12 @@ export const useSources = create<SourcesState>((set) => ({
     if (!isTauri) return false;
     set({ refreshing: true, error: null });
     try {
+      const state = usePlayer.getState();
+      const track = state.queue[state.index];
+      if (track && (track.source === "youtube" || track.source === "soundcloud")) {
+        state.pause();
+        await stopMpv().catch(() => undefined);
+      }
       await clearCache();
       const cache = await getCacheInfo();
       set({ cache, refreshing: false });

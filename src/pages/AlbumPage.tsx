@@ -45,7 +45,7 @@ export function AlbumPage() {
               {album.artist}
             </Link>
             {" · "}
-            {pluralTracks(tracks.length, i18n.language)} · {formatTotalDuration(tracks)}
+            {pluralTracks(tracks.length, i18n.language)} · {formatTotalDuration(tracks, i18n.language)}
           </p>
           <div className="collection-buttons">
             <button className="btn btn-primary" onClick={() => play(tracks, 0)}>
@@ -78,7 +78,7 @@ export function AlbumPage() {
 
       <div className="library-footer">
         <span>{album.year} · Lumen Records</span>
-        <span>{formatTotalDuration(tracks)}</span>
+        <span>{formatTotalDuration(tracks, i18n.language)}</span>
       </div>
     </div>
   );

@@ -1,18 +1,57 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderOpen, HardDrive, Music2, Play, Plus, Shuffle } from "lucide-react";
-import { localTracksList } from "../lib/mock";
+import { FolderOpen, HardDrive, Loader2, Music2, Play, Plus, RefreshCw, Search, Shuffle, Trash2, X } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { useLocal } from "../store/local";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
 import { Cover, EmptyState } from "../components/ui";
 import { TrackRow } from "../components/TrackRow";
 import { formatTotalDuration, pluralTracks } from "../lib/utils";
+import { isTauri } from "../lib/tauri";
 
 export function LocalPage() {
   const { t, i18n } = useTranslation();
   const play = usePlayer((s) => s.play);
   const toast = useUI((s) => s.toast);
-  const [folders, setFolders] = useState<string[]>([]);
+  const folders = useLocal((s) => s.folders);
+  const tracks = useLocal((s) => s.tracks);
+  const scanning = useLocal((s) => s.scanning);
+  const error = useLocal((s) => s.error);
+  const addFolders = useLocal((s) => s.addFolders);
+  const removeFolder = useLocal((s) => s.removeFolder);
+  const scan = useLocal((s) => s.scan);
+  const [query, setQuery] = useState("");
+
+  const visible = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    if (!text) return tracks;
+    return tracks.filter(
+      (track) =>
+        track.title.toLowerCase().includes(text) ||
+        track.artist.toLowerCase().includes(text) ||
+        (track.album ?? "").toLowerCase().includes(text),
+    );
+  }, [tracks, query]);
+
+  const chooseFolders = async () => {
+    if (!isTauri) {
+      toast(t("library.localOnlyApp"), "error");
+      return;
+    }
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: true,
+        title: t("library.addFolder"),
+      });
+      if (!selected) return;
+      const values = Array.isArray(selected) ? selected : [selected];
+      if (values.length) addFolders(values);
+    } catch (dialogError) {
+      toast(String(dialogError), "error");
+    }
+  };
 
   return (
     <div className="page collection-page">
@@ -24,19 +63,24 @@ export function LocalPage() {
           <p className="eyebrow">{t("common.local")}</p>
           <h1>{t("library.allTracks")}</h1>
           <p className="collection-meta">
-            {pluralTracks(localTracksList.length, i18n.language)} · {formatTotalDuration(localTracksList)}
+            {pluralTracks(tracks.length, i18n.language)} · {formatTotalDuration(tracks, i18n.language)}
           </p>
           <div className="collection-buttons">
-            <button className="btn btn-primary" onClick={() => play(localTracksList, 0)}>
+            <button className="btn btn-primary" disabled={!tracks.length} onClick={() => play(tracks, 0)}>
               <Play size={16} fill="currentColor" />
               {t("common.playAll")}
             </button>
             <button
               className="btn btn-ghost"
-              onClick={() => play([...localTracksList].sort(() => Math.random() - 0.5), 0, { shuffle: true })}
+              disabled={!tracks.length}
+              onClick={() => play([...tracks].sort(() => Math.random() - 0.5), 0, { shuffle: true })}
             >
               <Shuffle size={16} />
               {t("playlist.shuffle")}
+            </button>
+            <button className="btn btn-ghost" onClick={() => void chooseFolders()}>
+              <Plus size={16} />
+              {t("library.addFolder")}
             </button>
           </div>
         </div>
@@ -44,43 +88,82 @@ export function LocalPage() {
 
       <div className="local-folders">
         <FolderOpen size={15} />
-        {folders.map((f) => (
-          <span className="local-folder" key={f}>
-            {f}
+        {folders.map((folder) => (
+          <span className="local-folder" key={folder} title={folder}>
+            {folder}
+            <button
+              className="local-folder-remove"
+              aria-label={t("library.removeFolder")}
+              onClick={() => removeFolder(folder)}
+            >
+              <X size={12} />
+            </button>
           </span>
         ))}
-        <button
-          className="link-button"
-          onClick={() => {
-            setFolders((f) => [...f, `~/Music/Library ${f.length + 1}`]);
-            toast(t("toast.folderAdded"), "success");
-          }}
-        >
-          <Plus size={13} />
-          {t("library.addFolder")}
-        </button>
+        {!folders.length && <span className="local-folder-empty">{t("library.noFolders")}</span>}
+        {folders.length > 0 && (
+          <button className="link-button" disabled={scanning} onClick={() => void scan()}>
+            {scanning ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}
+            {scanning ? t("library.scanning") : t("library.rescan")}
+          </button>
+        )}
       </div>
 
-      {localTracksList.length ? (
+      {error && <div className="search-network-note is-error">{error}</div>}
+
+      {tracks.length > 0 && (
+        <div className="search-bar local-search">
+          <Search size={17} className="search-bar-icon" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("library.searchLocal")}
+            autoComplete="off"
+          />
+          {query && (
+            <button className="search-clear" aria-label={t("search.clear")} onClick={() => setQuery("")}>
+              <X size={15} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {scanning && !tracks.length ? (
+        <div className="search-loading-list">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <span key={index} className="search-skeleton" />
+          ))}
+        </div>
+      ) : visible.length ? (
         <div className="track-list">
-          {localTracksList.map((tr, i) => (
-            <TrackRow key={tr.id} track={tr} index={i} context={localTracksList} showAlbum />
+          {visible.map((track, index) => (
+            <TrackRow key={track.id} track={track} index={index} context={visible} showAlbum />
           ))}
         </div>
       ) : (
         <EmptyState
           icon={<Music2 size={26} />}
-          title={t("library.localEmpty")}
-          hint={t("library.localEmptyHint")}
+          title={tracks.length ? t("search.noResults") : t("library.localEmpty")}
+          hint={tracks.length ? t("search.noResultsHint") : t("library.localEmptyHint")}
+          action={
+            !tracks.length ? (
+              <button className="btn btn-primary" onClick={() => void chooseFolders()}>
+                <Plus size={15} />
+                {t("library.addFolder")}
+              </button>
+            ) : undefined
+          }
         />
       )}
 
-      <div className="library-footer">
-        <Music2 size={14} />
-        <span>
-          FLAC, MP3, OGG, WAV · {t("library.scanned")}: {localTracksList.length}
-        </span>
-      </div>
+      {folders.length > 0 && (
+        <div className="library-footer">
+          <Trash2 size={13} />
+          <span>
+            {t("library.scanned")}: {tracks.length}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -238,7 +238,7 @@ fn infer_source(url: &str) -> Option<&'static str> {
     }
 }
 
-fn validate_media_url(url: &str) -> Result<(), String> {
+pub(crate) fn validate_media_url(url: &str) -> Result<(), String> {
     let lower = url.to_lowercase();
     if !(lower.starts_with("http://") || lower.starts_with("https://")) {
         return Err("Поддерживаются только ссылки http(s)".to_string());
@@ -268,7 +268,7 @@ fn youtube_video_id(url: &str) -> Option<String> {
     }
 }
 
-fn normalize_media_url(url: &str) -> String {
+pub(crate) fn normalize_media_url(url: &str) -> String {
     let trimmed = url.trim();
     if infer_source(trimmed) == Some("youtube") {
         if let Some(id) = youtube_video_id(trimmed) {
@@ -287,6 +287,23 @@ fn sha256_hex(value: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value.as_bytes());
     hex::encode(hasher.finalize())
+}
+
+fn cache_hash(url: &str, quality: &str) -> String {
+    if quality == "high" || quality.is_empty() {
+        sha256_hex(url)
+    } else {
+        sha256_hex(&format!("{url}|{quality}"))
+    }
+}
+
+fn format_selector(quality: &str) -> &'static str {
+    match quality {
+        "low" => "worstaudio[abr<=96]/worstaudio/best",
+        "normal" => "bestaudio[abr<=128]/bestaudio/best",
+        "lossless" => "bestaudio[acodec=flac]/bestaudio/best",
+        _ => "bestaudio/best",
+    }
 }
 
 fn pick_thumbnail(entry: &SearchRoot, source: &str) -> Option<String> {
@@ -596,14 +613,17 @@ pub fn cache_info(state: State<'_, AppState>) -> CacheInfo {
 }
 
 #[tauri::command]
-pub fn clear_cache(state: State<'_, AppState>) -> Result<(), String> {
-    if state.cache_dir.exists() {
-        std::fs::remove_dir_all(&state.cache_dir)
-            .map_err(|e| format!("Не удалось очистить кэш: {e}"))?;
-    }
-    std::fs::create_dir_all(&state.cache_dir)
-        .map_err(|e| format!("Не удалось создать папку кэша: {e}"))?;
-    Ok(())
+pub async fn clear_cache(state: State<'_, AppState>) -> Result<(), String> {
+    let dir = state.cache_dir.clone();
+    tokio::task::spawn_blocking(move || {
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).map_err(|e| format!("Не удалось очистить кэш: {e}"))?;
+        }
+        std::fs::create_dir_all(&dir).map_err(|e| format!("Не удалось создать папку кэша: {e}"))?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("Не удалось очистить кэш: {e}"))?
 }
 
 fn prune_cache(dir: &Path, limit_mb: u64) -> Result<(), String> {
@@ -653,11 +673,14 @@ fn prune_cache(dir: &Path, limit_mb: u64) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn set_cache_limit(state: State<'_, AppState>, max_mb: u64) -> Result<(), String> {
+pub async fn set_cache_limit(state: State<'_, AppState>, max_mb: u64) -> Result<(), String> {
     state
         .cache_limit_mb
         .store(max_mb, std::sync::atomic::Ordering::Relaxed);
-    prune_cache(&state.cache_dir, max_mb)
+    let dir = state.cache_dir.clone();
+    tokio::task::spawn_blocking(move || prune_cache(&dir, max_mb))
+        .await
+        .map_err(|e| format!("Не удалось обновить лимит кэша: {e}"))?
 }
 
 fn find_cached(dir: &Path, hash: &str) -> Option<PathBuf> {
@@ -762,6 +785,7 @@ async fn download_audio(
     hash: &str,
     url: &str,
     track_id: &str,
+    quality: &str,
 ) -> Result<String, String> {
     let output_template = cache_dir.join(format!("{hash}.%(ext)s"));
     let mut command = tokio::process::Command::new(ytdlp);
@@ -776,7 +800,7 @@ async fn download_audio(
         .arg("--no-write-auto-subs")
         .arg("--restrict-filenames")
         .arg("-f")
-        .arg("bestaudio/best")
+        .arg(format_selector(quality))
         .arg("-o")
         .arg(&output_template)
         .arg(url)
@@ -865,10 +889,14 @@ pub async fn prepare_track(
     state: State<'_, AppState>,
     url: String,
     track_id: String,
+    quality: Option<String>,
 ) -> Result<PreparedTrack, String> {
     let normalized = normalize_media_url(&url);
     validate_media_url(&normalized)?;
-    let hash = sha256_hex(&normalized);
+    let quality = quality
+        .filter(|value| matches!(value.as_str(), "low" | "normal" | "high" | "lossless"))
+        .unwrap_or_else(|| "high".to_string());
+    let hash = cache_hash(&normalized, &quality);
     let cache_limit = state
         .cache_limit_mb
         .load(std::sync::atomic::Ordering::Relaxed);
@@ -897,10 +925,33 @@ pub async fn prepare_track(
         .await
         .map_err(|_| "Очередь загрузок недоступна".to_string())?;
 
+    // Two rapid play requests for the same track must not write the same
+    // output file at the same time. Wait for the first download and reuse it.
+    loop {
+        let mut active = state.downloading.lock().await;
+        if active.insert(hash.clone()) {
+            break;
+        }
+        drop(active);
+        if let Some(path) = find_cached(&state.cache_dir, &hash) {
+            touch(&path);
+            let duration = ffprobe_duration(&path);
+            let preview = looks_like_preview(&normalized, duration);
+            return Ok(PreparedTrack {
+                path: path.display().to_string(),
+                duration,
+                preview,
+                cached: true,
+            });
+        }
+        tokio::time::sleep(Duration::from_millis(120)).await;
+    }
+
     if let Some(path) = find_cached(&state.cache_dir, &hash) {
         touch(&path);
         let duration = ffprobe_duration(&path);
         let preview = looks_like_preview(&normalized, duration);
+        state.downloading.lock().await.remove(&hash);
         return Ok(PreparedTrack {
             path: path.display().to_string(),
             duration,
@@ -909,15 +960,18 @@ pub async fn prepare_track(
         });
     }
 
-    let log = download_audio(
+    let download_result = download_audio(
         Some(app.clone()),
         &ytdlp,
         &state.cache_dir,
         &hash,
         &normalized,
         &track_id,
+        &quality,
     )
-    .await?;
+    .await;
+    state.downloading.lock().await.remove(&hash);
+    let log = download_result?;
     let path = find_cached(&state.cache_dir, &hash)
         .ok_or_else(|| "yt-dlp не создал аудиофайл".to_string())?;
     touch(&path);
@@ -975,7 +1029,7 @@ mod tests {
         let hash = sha256_hex(&url);
         let dir = std::env::temp_dir().join(format!("lumen-audio-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("test cache directory");
-        let result = download_audio(None, &ytdlp, &dir, &hash, &url, "test-track").await;
+        let result = download_audio(None, &ytdlp, &dir, &hash, &url, "test-track", "high").await;
         let path = find_cached(&dir, &hash);
         let _ = std::fs::remove_dir_all(&dir);
         assert!(result.is_ok(), "{:?}", result.err());
@@ -996,5 +1050,31 @@ mod tests {
         assert!(!soundcloud.is_empty());
         assert!(youtube.iter().all(|item| item.source == "youtube"));
         assert!(soundcloud.iter().all(|item| item.source == "soundcloud"));
+    }
+}
+
+#[cfg(test)]
+mod quality_tests {
+    use super::*;
+
+    #[test]
+    fn quality_changes_cache_key_and_selector() {
+        let url = "https://www.youtube.com/watch?v=abc";
+        assert_eq!(cache_hash(url, "high"), sha256_hex(url));
+        assert_ne!(cache_hash(url, "low"), cache_hash(url, "high"));
+        assert_eq!(
+            format_selector("low"),
+            "worstaudio[abr<=96]/worstaudio/best"
+        );
+        assert_eq!(
+            format_selector("normal"),
+            "bestaudio[abr<=128]/bestaudio/best"
+        );
+        assert_eq!(format_selector("high"), "bestaudio/best");
+        assert_eq!(
+            format_selector("lossless"),
+            "bestaudio[acodec=flac]/bestaudio/best"
+        );
+        assert_eq!(format_selector("unknown"), "bestaudio/best");
     }
 }

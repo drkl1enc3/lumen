@@ -1,6 +1,6 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import i18n from "../i18n";
-import { isExternalTrack } from "./catalog";
+import { isExternalTrack, isPlayableTrack } from "./catalog";
 import {
   onDownloadProgress,
   onPlaybackDuration,
@@ -19,6 +19,7 @@ import { isTauri } from "./tauri";
 import type { Track } from "./types";
 import { useCatalog } from "../store/catalog";
 import { usePlayer } from "../store/player";
+import { useSettings } from "../store/settings";
 import { useUI } from "../store/ui";
 
 const ignored = () => undefined;
@@ -38,6 +39,7 @@ export function attachPlayerBridge(): () => void {
     loadedPath = null;
     usePlayer.setState({ playing: false, loading: false, loadProgress: 0, loadError: message });
     useUI.getState().toast(i18n.t("toast.sourceError", { error: message }), "error");
+    void stopMpv().catch(ignored);
   };
 
   const loadTrack = async (track: Track, startAt = 0) => {
@@ -47,29 +49,46 @@ export function attachPlayerBridge(): () => void {
     lastPosition = startAt;
     usePlayer.getState().setLoading(true, 0);
     usePlayer.setState({ loadError: null });
-    void stopMpv().catch(ignored);
 
     try {
-      const prepared = await prepareTrack(track);
-      if (disposed || token !== loadToken) return;
+      // Pause the previous file while the next one is prepared. Calling
+      // `play_file` with `replace` would otherwise leave old audio playing
+      // during a slow download.
+      await setMpvPaused(true).catch(ignored);
+      let path: string;
+      let duration = track.duration;
+      if (isExternalTrack(track)) {
+        const prepared = await prepareTrack(track, useSettings.getState().audioQuality);
+        if (disposed || token !== loadToken) return;
 
-      if (prepared.duration > 0) {
-        usePlayer.getState().setDuration(prepared.duration);
-      }
-      if (prepared.preview) {
-        const existing = useCatalog.getState().external[track.id];
-        const alreadyKnown = existing?.previewOnly || track.previewOnly;
-        useCatalog.getState().markPreview(track.id);
-        if (!alreadyKnown) {
-          useUI.getState().toast(i18n.t("toast.soundcloudPreview"), "info");
+        if (prepared.duration > 0) {
+          duration = prepared.duration;
+          usePlayer.getState().setDuration(prepared.duration);
         }
+        if (prepared.preview) {
+          const existing = useCatalog.getState().external[track.id];
+          const alreadyKnown = existing?.previewOnly || track.previewOnly;
+          useCatalog.getState().markPreview(track.id);
+          if (!alreadyKnown) {
+            useUI.getState().toast(i18n.t("toast.soundcloudPreview"), "info");
+          }
+        }
+        path = prepared.path;
+      } else if (track.source === "local" && track.path) {
+        path = track.path;
+        if (duration > 0) usePlayer.getState().setDuration(duration);
+      } else {
+        usePlayer.getState().setLoading(false);
+        return;
       }
+
+      if (disposed || token !== loadToken) return;
 
       const state = usePlayer.getState();
       const position = Math.max(startAt, state.progress);
-      loadedPath = prepared.path;
+      loadedPath = path;
       loadedTrackId = track.id;
-      await playFile(prepared.path, {
+      await playFile(path, {
         paused: !state.playing,
         position,
         volume: state.volume,
@@ -96,11 +115,11 @@ export function attachPlayerBridge(): () => void {
   const handleEnded = () => {
     const state = usePlayer.getState();
     const track = state.queue[state.index];
-    if (!isExternalTrack(track) || state.loading || loadedTrackId !== track.id) return;
+    if (!isPlayableTrack(track) || state.loading || loadedTrackId !== track?.id) return;
 
     if (state.repeat === "one" && loadedPath) {
       lastPosition = 0;
-      usePlayer.setState({ progress: 0, playing: true });
+      usePlayer.setState({ progress: 0, resumePosition: 0, playing: true });
       void playFile(loadedPath, {
         paused: false,
         position: 0,
@@ -119,14 +138,14 @@ export function attachPlayerBridge(): () => void {
     onPlaybackPosition((seconds) => {
       const state = usePlayer.getState();
       const track = state.queue[state.index];
-      if (!isExternalTrack(track) || state.loading || loadedTrackId !== track.id) return;
+      if (!isPlayableTrack(track) || state.loading || loadedTrackId !== track?.id) return;
       lastPosition = seconds;
       usePlayer.setState({ progress: seconds });
     }),
     onPlaybackDuration((seconds) => {
       const state = usePlayer.getState();
       const track = state.queue[state.index];
-      if (!isExternalTrack(track) || state.loading || loadedTrackId !== track.id) return;
+      if (!isPlayableTrack(track) || state.loading || loadedTrackId !== track?.id) return;
       state.setDuration(seconds);
     }),
     onPlaybackEnded(handleEnded),
@@ -157,10 +176,10 @@ export function attachPlayerBridge(): () => void {
     const track = state.queue[state.index];
     const previousTrack = previous.queue[previous.index];
     const changed = track?.id !== previousTrack?.id;
-    const external = isExternalTrack(track);
+    const playable = isPlayableTrack(track);
 
     if (changed) {
-      if (!external || !track) {
+      if (!playable || !track) {
         loadToken += 1;
         loadedTrackId = null;
         loadedPath = null;
@@ -172,20 +191,20 @@ export function attachPlayerBridge(): () => void {
       return;
     }
 
-    if (!external || !track) return;
+    if (!playable || !track) return;
 
     if (state.playing !== previous.playing) {
       if (state.playing) {
         if (loadedTrackId === track.id) {
           if (state.progress >= Math.max(1, track.duration) - 0.5) {
-            usePlayer.setState({ progress: 0 });
+            usePlayer.setState({ progress: 0, resumePosition: 0 });
             void loadTrack(track, 0);
           } else {
             void setMpvPaused(false).catch((error) => showError(String(error)));
           }
         } else if (!state.loading) {
           const atEnd = state.progress >= Math.max(1, track.duration) - 0.5;
-          if (atEnd) usePlayer.setState({ progress: 0 });
+          if (atEnd) usePlayer.setState({ progress: 0, resumePosition: 0 });
           void loadTrack(track, atEnd ? 0 : state.progress);
         }
       } else if (loadedTrackId === track.id) {
@@ -215,7 +234,7 @@ export function attachPlayerBridge(): () => void {
 
   const initial = usePlayer.getState();
   const initialTrack = initial.queue[initial.index];
-  if (initial.playing && isExternalTrack(initialTrack)) {
+  if (initial.playing && isPlayableTrack(initialTrack)) {
     void loadTrack(initialTrack, initial.progress);
   }
 

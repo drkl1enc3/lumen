@@ -4,6 +4,7 @@ import { ArrowRight, Clock3, Cloud, Headphones, Heart, Play, Plus, Users, Waves,
 import { waveTracks } from "../lib/mock";
 import { resolveTracks } from "../lib/catalog";
 import { useLibrary } from "../store/library";
+import { useLocal } from "../store/local";
 import { usePlayer } from "../store/player";
 import { useUI } from "../store/ui";
 import { formatLongTime } from "../lib/utils";
@@ -23,6 +24,8 @@ export function Home() {
   const favoritesIds = useLibrary((s) => s.favorites);
   const stats = useLibrary((s) => s.stats);
   const userPlaylists = useLibrary((s) => s.playlists);
+  const localTracks = useLocal((s) => s.tracks);
+  const wave = waveTracks.length ? waveTracks : localTracks.slice(0, 30);
 
   const recent = resolveTracks(recentIds.slice(0, 10));
   const favorites = resolveTracks(favoritesIds);
@@ -32,12 +35,12 @@ export function Home() {
   const totalMinutes = recent.reduce((a, t) => a + t.duration, 0);
 
   const startWave = () => {
-    if (!waveTracks.length) {
+    if (!wave.length) {
       toast(t("home.waveEmpty"));
       navigate("/search");
       return;
     }
-    play(waveTracks, 0, { shuffle: true });
+    play(wave, 0, { shuffle: true });
     toast(t("toast.waveStarted"), "success");
   };
 
@@ -50,6 +53,7 @@ export function Home() {
         <div className="wave-text">
           <h1>{t("home.waveTitle")}</h1>
           <p>{waveReady ? t("home.waveReady") : t("home.waveHint")}</p>
+        {wave.length > 0 && <span className="wave-count">{wave.length}</span>}
         </div>
         <span className="wave-art" title={t("home.waveTooltip")}>
           <Waves size={26} />
@@ -109,7 +113,7 @@ export function Home() {
                   ? "прослуховувань"
                   : "plays"}
               {" · "}
-              {formatLongTime(totalMinutes)}
+              {formatLongTime(totalMinutes, i18n.language)}
             </span>
           </div>
           <span className="listening-card-last">

@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import type { RepeatMode, Track } from "../lib/types";
 import { clamp } from "../lib/utils";
+import { appStorage } from "../lib/persist";
 import { useLibrary } from "./library";
 
 interface PlayerState {
@@ -9,12 +10,15 @@ interface PlayerState {
   index: number;
   playing: boolean;
   progress: number;
+  resumePosition: number;
   volume: number;
   muted: boolean;
   shuffle: boolean;
+  shufflePlayed: string[];
   repeat: RepeatMode;
   speed: number;
   sleepTimer: number | null;
+  sleepEndsAt: number | null;
   loading: boolean;
   loadProgress: number;
   loadError: string | null;
@@ -27,6 +31,8 @@ interface PlayerState {
   seek: (seconds: number) => void;
   seekBy: (delta: number) => void;
   tick: (dt: number) => void;
+  tickClock: (now: number) => void;
+  syncResumePosition: () => void;
   setVolume: (v: number) => void;
   toggleMute: () => void;
   toggleShuffle: () => void;
@@ -43,6 +49,10 @@ interface PlayerState {
 
 export const currentTrack = (s: PlayerState): Track | undefined => s.queue[s.index];
 
+function trackEnded(track: Track | undefined, progress: number): boolean {
+  return Boolean(track && progress >= Math.max(1, track.duration) - 0.5);
+}
+
 export const usePlayer = create<PlayerState>()(
   persist(
     (set, get) => ({
@@ -50,12 +60,15 @@ export const usePlayer = create<PlayerState>()(
       index: 0,
       playing: false,
       progress: 0,
+      resumePosition: 0,
       volume: 0.72,
       muted: false,
       shuffle: false,
+      shufflePlayed: [],
       repeat: "off",
       speed: 1,
       sleepTimer: null,
+      sleepEndsAt: null,
       loading: false,
       loadProgress: 0,
       loadError: null,
@@ -68,7 +81,11 @@ export const usePlayer = create<PlayerState>()(
             index: clamp(start, 0, tracks.length - 1),
             playing: true,
             progress: 0,
+            resumePosition: 0,
             shuffle: nextShuffle,
+            shufflePlayed: nextShuffle
+              ? [tracks[clamp(start, 0, tracks.length - 1)].id]
+              : [],
             loading: false,
             loadProgress: 0,
             loadError: null,
@@ -84,39 +101,109 @@ export const usePlayer = create<PlayerState>()(
       toggle: () => {
         const state = get();
         if (!state.queue.length) return;
-        set({ playing: !state.playing });
         const track = state.queue[state.index];
-        if (!state.playing && track) useLibrary.getState().registerPlay(track.id);
+        if (state.playing) {
+          set({ playing: false, resumePosition: state.progress });
+          return;
+        }
+        if (track && trackEnded(track, state.progress)) {
+          set({ playing: true, progress: 0, resumePosition: 0 });
+        } else {
+          set({ playing: true });
+        }
+        if (track) useLibrary.getState().registerPlay(track.id);
       },
-      pause: () => set({ playing: false }),
+      pause: () => {
+        const state = get();
+        set({ playing: false, resumePosition: state.progress });
+      },
       next: (auto = false) => {
         const state = get();
         if (!state.queue.length) return;
-        let nextIndex = state.index + 1;
-        if (state.shuffle && state.queue.length > 1) {
-          do {
-            nextIndex = Math.floor(Math.random() * state.queue.length);
-          } while (nextIndex === state.index);
+        const length = state.queue.length;
+
+        if (auto && state.repeat === "one") {
+          set({
+            progress: 0,
+            resumePosition: 0,
+            playing: true,
+            loading: false,
+            loadProgress: 0,
+            loadError: null,
+          });
+          return;
         }
-        if (nextIndex >= state.queue.length) {
-          if (state.repeat === "all") nextIndex = 0;
-          else if (state.repeat === "one") nextIndex = state.index;
-          else {
-            if (auto) set({ playing: false, progress: state.queue[state.index]?.duration ?? 0 });
-            else set({ index: 0, progress: 0 });
+
+        let nextIndex = state.index + 1;
+        let shufflePlayed = state.shufflePlayed;
+
+        if (state.shuffle && length > 1) {
+          const unplayed = state.queue
+            .map((_, index) => index)
+            .filter((index) => !state.shufflePlayed.includes(state.queue[index].id));
+          if (unplayed.length) {
+            nextIndex = unplayed[Math.floor(Math.random() * unplayed.length)];
+            shufflePlayed = [...state.shufflePlayed, state.queue[nextIndex].id];
+          } else if (auto && state.repeat === "off") {
+            set({
+              playing: false,
+              progress: state.queue[state.index]?.duration ?? 0,
+              resumePosition: state.queue[state.index]?.duration ?? 0,
+            });
+            return;
+          } else {
+            do {
+              nextIndex = Math.floor(Math.random() * length);
+            } while (nextIndex === state.index);
+            shufflePlayed = [state.queue[nextIndex].id];
+          }
+        }
+
+        if (nextIndex >= length) {
+          if (state.repeat === "one" && auto) {
+            nextIndex = state.index;
+          } else if (state.repeat === "all" || state.repeat === "one" || !auto) {
+            nextIndex = 0;
+          } else {
+            set({
+              playing: false,
+              progress: state.queue[state.index]?.duration ?? 0,
+              resumePosition: state.queue[state.index]?.duration ?? 0,
+            });
             return;
           }
         }
-        set({ index: nextIndex, progress: 0, playing: true, loading: false, loadProgress: 0, loadError: null });
+
+        set({
+          index: nextIndex,
+          progress: 0,
+          resumePosition: 0,
+          playing: true,
+          shufflePlayed,
+          loading: false,
+          loadProgress: 0,
+          loadError: null,
+        });
         const track = state.queue[nextIndex];
         if (track) useLibrary.getState().registerPlay(track.id);
       },
       prev: () => {
         const state = get();
         if (!state.queue.length) return;
-        if (state.progress > 4) return set({ progress: 0 });
+        if (state.progress > 4) {
+          set({ progress: 0, resumePosition: 0 });
+          return;
+        }
         const prevIndex = state.index === 0 ? state.queue.length - 1 : state.index - 1;
-        set({ index: prevIndex, progress: 0, playing: true, loading: false, loadProgress: 0, loadError: null });
+        set({
+          index: prevIndex,
+          progress: 0,
+          resumePosition: 0,
+          playing: true,
+          loading: false,
+          loadProgress: 0,
+          loadError: null,
+        });
         const track = state.queue[prevIndex];
         if (track) useLibrary.getState().registerPlay(track.id);
       },
@@ -124,7 +211,8 @@ export const usePlayer = create<PlayerState>()(
         const state = get();
         const track = state.queue[state.index];
         if (!track) return;
-        set({ progress: clamp(seconds, 0, track.duration) });
+        const progress = clamp(seconds, 0, track.duration);
+        set({ progress, resumePosition: progress });
       },
       seekBy: (delta) => get().seek(get().progress + delta),
       tick: (dt) => {
@@ -134,45 +222,112 @@ export const usePlayer = create<PlayerState>()(
         if (!track) return;
         const nextProgress = state.progress + dt * state.speed;
         if (nextProgress >= track.duration) {
-          if (state.repeat === "one") set({ progress: 0 });
-          else if (state.repeat === "all" || state.index < state.queue.length - 1) {
-            const nextIndex = (state.index + 1) % state.queue.length;
-            set({ index: nextIndex, progress: 0, loading: false, loadProgress: 0, loadError: null });
-            const next = state.queue[nextIndex];
-            if (next) useLibrary.getState().registerPlay(next.id);
-          } else {
-            set({ playing: false, progress: track.duration });
-          }
+          get().next(true);
           return;
         }
         set({ progress: nextProgress });
       },
+      tickClock: (now) => {
+        const state = get();
+        if (!state.sleepEndsAt) return;
+        if (now >= state.sleepEndsAt) {
+          set({
+            playing: false,
+            sleepTimer: null,
+            sleepEndsAt: null,
+            resumePosition: state.progress,
+          });
+        }
+      },
+      syncResumePosition: () => {
+        const state = get();
+        if (!state.queue.length) return;
+        if (Math.abs(state.resumePosition - state.progress) < 1.5) return;
+        set({ resumePosition: state.progress });
+      },
       setVolume: (v) => set({ volume: clamp(v, 0, 1), muted: v === 0 ? get().muted : false }),
       toggleMute: () => set((state) => ({ muted: !state.muted })),
-      toggleShuffle: () => set((state) => ({ shuffle: !state.shuffle })),
+      toggleShuffle: () =>
+        set((state) => {
+          const shuffle = !state.shuffle;
+          return {
+            shuffle,
+            shufflePlayed: shuffle && state.queue[state.index]
+              ? [state.queue[state.index].id]
+              : [],
+          };
+        }),
       cycleRepeat: () =>
         set((state) => ({
           repeat: state.repeat === "off" ? "all" : state.repeat === "all" ? "one" : "off",
         })),
       setSpeed: (v) => set({ speed: clamp(v, 0.5, 2) }),
-      setSleepTimer: (minutes) => set({ sleepTimer: minutes }),
+      setSleepTimer: (minutes) =>
+        set({
+          sleepTimer: minutes,
+          sleepEndsAt: minutes === null ? null : Date.now() + minutes * 60_000,
+        }),
       removeFromQueue: (index) =>
         set((state) => {
+          if (index < 0 || index >= state.queue.length) return {};
           const queue = state.queue.filter((_, i) => i !== index);
-          const nextIndex = index < state.index ? state.index - 1 : state.index;
+          if (!queue.length) {
+            return {
+              queue: [],
+              index: 0,
+              playing: false,
+              progress: 0,
+              resumePosition: 0,
+              loading: false,
+              loadProgress: 0,
+              loadError: null,
+            };
+          }
+          const removedCurrent = index === state.index;
+          const nextIndex = clamp(
+            index < state.index ? state.index - 1 : state.index,
+            0,
+            queue.length - 1,
+          );
           return {
             queue,
-            index: clamp(nextIndex, 0, Math.max(0, queue.length - 1)),
-            playing: queue.length ? state.playing : false,
+            index: nextIndex,
+            progress: removedCurrent ? 0 : state.progress,
+            resumePosition: removedCurrent ? 0 : state.resumePosition,
+            shufflePlayed: state.shufflePlayed.filter((id) => queue.some((track) => track.id === id)),
           };
         }),
-      clearQueue: () => set({ queue: [], index: 0, playing: false, progress: 0, loading: false, loadProgress: 0, loadError: null }),
+      clearQueue: () =>
+        set({
+          queue: [],
+          index: 0,
+          playing: false,
+          progress: 0,
+          resumePosition: 0,
+          shufflePlayed: [],
+          loading: false,
+          loadProgress: 0,
+          loadError: null,
+        }),
       moveInQueue: (from, to) =>
         set((state) => {
+          if (
+            from < 0 ||
+            to < 0 ||
+            from >= state.queue.length ||
+            to >= state.queue.length ||
+            from === to
+          ) {
+            return {};
+          }
           const queue = [...state.queue];
           const [moved] = queue.splice(from, 1);
           queue.splice(to, 0, moved);
-          return { queue };
+          let index = state.index;
+          if (state.index === from) index = to;
+          else if (from < state.index && to >= state.index) index -= 1;
+          else if (from > state.index && to <= state.index) index += 1;
+          return { queue, index };
         }),
       setLoading: (loading, progress) =>
         set((state) => ({
@@ -180,8 +335,7 @@ export const usePlayer = create<PlayerState>()(
           loadProgress: progress ?? (loading ? state.loadProgress : 0),
           loadError: loading ? null : state.loadError,
         })),
-      setLoadProgress: (loadProgress) =>
-        set({ loadProgress: clamp(loadProgress, 0, 100) }),
+      setLoadProgress: (loadProgress) => set({ loadProgress: clamp(loadProgress, 0, 100) }),
       setDuration: (seconds) =>
         set((state) => {
           if (!Number.isFinite(seconds) || seconds <= 0) return {};
@@ -197,7 +351,18 @@ export const usePlayer = create<PlayerState>()(
     }),
     {
       name: "lumen.player.v1",
-      partialize: (state) => ({ volume: state.volume, repeat: state.repeat, shuffle: state.shuffle }),
+      storage: createJSONStorage(() => appStorage),
+      skipHydration: true,
+      partialize: (state) => ({
+        queue: state.queue,
+        index: state.index,
+        volume: state.volume,
+        muted: state.muted,
+        shuffle: state.shuffle,
+        repeat: state.repeat,
+        speed: state.speed,
+        resumePosition: state.resumePosition,
+      }),
     },
   ),
 );

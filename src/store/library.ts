@@ -1,9 +1,10 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { mockFavorites, mockHistory, playlists as mockPlaylists } from "../lib/mock";
 import type { Playlist } from "../lib/types";
 import { uid } from "../lib/utils";
 import { useSettings } from "./settings";
+import { appStorage } from "../lib/persist";
 
 interface LibraryState {
   favorites: string[];
@@ -104,6 +105,10 @@ export const useLibrary = create<LibraryState>()(
         })),
       clearHistory: () => set({ recent: [] }),
     }),
-    { name: "lumen.library.v1" },
+    {
+      name: "lumen.library.v1",
+      storage: createJSONStorage(() => appStorage),
+      skipHydration: true,
+    },
   ),
 );

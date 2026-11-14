@@ -1,18 +1,27 @@
 {
   "name": "lumen",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "check": "tsc --noEmit",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "bump": "node scripts/bump-version.mjs",
+    "verify:ui": "node scripts/verify-v02.mjs",
+    "verify:image": "node scripts/verify-image.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
     "@tauri-apps/api": "^2.9.1",
+    "@tauri-apps/plugin-autostart": "^2.7.0",
+    "@tauri-apps/plugin-deep-link": "^2.6.3",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "@tauri-apps/plugin-opener": "^2.7.3",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.14.1",
     "clsx": "^2.1.1",
     "i18next": "^25.6.0",
     "lucide-react": "^0.553.0",

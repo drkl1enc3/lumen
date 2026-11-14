@@ -26,7 +26,7 @@ export function HistoryPage() {
           <p className="eyebrow">{i18n.language === "ru" ? "Вы слушали" : "You listened to"}</p>
           <h1>{t("home.history")}</h1>
           <p className="collection-meta">
-            {pluralTracks(tracks.length, i18n.language)} · {formatTotalDuration(tracks)}
+            {pluralTracks(tracks.length, i18n.language)} · {formatTotalDuration(tracks, i18n.language)}
           </p>
           <div className="collection-buttons">
             <button className="btn btn-primary" disabled={!tracks.length} onClick={() => play(tracks, 0)}>

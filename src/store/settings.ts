@@ -1,6 +1,8 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import type { Accent } from "../lib/types";
+import { normalizeHotkey } from "../lib/hotkeys";
+import { appStorage } from "../lib/persist";
 
 export interface Hotkey {
   action: string;
@@ -33,6 +35,7 @@ export type VisualizerKind =
   | "spiral";
 export type TabPosition = "top" | "bottom" | "left" | "right";
 export type TabStyle = "default" | "compact" | "full";
+export type EqualizerPreset = "flat" | "bass" | "vocal" | "rock" | "pop" | "jazz";
 export type PanelElement =
   | "title"
   | "collapse"
@@ -58,17 +61,13 @@ export interface SettingsState {
   autoplay: boolean;
   autostart: boolean;
   minimizeToTray: boolean;
-  similarTracks: boolean;
   restoreQueue: boolean;
-  compactQueue: boolean;
   audioQuality: "low" | "normal" | "high" | "lossless";
   downloadQuality: "low" | "normal" | "high" | "lossless";
-  crossfade: number;
+  downloadFolder: string | null;
   gapless: boolean;
   normalize: boolean;
-  playbackSpeed: number;
   visualizer: VisualizerKind;
-  cacheEnabled: boolean;
   cacheLimit: number;
   miniStyle: "full" | "compact" | "minimal";
   glass: number;
@@ -118,17 +117,26 @@ export interface SettingsState {
   showQueue: boolean;
   nextTrackPreview: boolean;
 
+  equalizerEnabled: boolean;
+  equalizerPreset: EqualizerPreset;
+  equalizerBands: number[];
+  lyricsEnabled: boolean;
+
   playerButtons: Record<string, boolean>;
   hotkeysEnabled: boolean;
   hotkeys: Hotkey[];
   discord: boolean;
   discordShowTrack: boolean;
+  discordAppId: string;
   mpris: boolean;
   tray: boolean;
   deeplinks: boolean;
   lastfm: boolean;
+  lastfmApiKey: string;
+  lastfmApiSecret: string;
+  lastfmSessionKey: string;
+  lastfmUsername: string;
   checkUpdates: boolean;
-  betaChannel: boolean;
   set: <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => void;
   setPlayerButton: (id: string, value: boolean) => void;
   setPanelElement: (id: PanelElement, value: boolean) => void;
@@ -136,23 +144,31 @@ export interface SettingsState {
   reset: () => void;
 }
 
+export const defaultHotkeys: Hotkey[] = [
+  { action: "playPause", keys: "Space" },
+  { action: "next", keys: "Ctrl ArrowRight" },
+  { action: "prev", keys: "Ctrl ArrowLeft" },
+  { action: "volumeUp", keys: "Ctrl ArrowUp" },
+  { action: "volumeDown", keys: "Ctrl ArrowDown" },
+  { action: "search", keys: "Ctrl K" },
+  { action: "like", keys: "L" },
+  { action: "queue", keys: "Q" },
+  { action: "settings", keys: "Ctrl ," },
+];
+
 const defaults = {
   language: "ru" as const,
   accent: "lavender" as Accent,
   autoplay: false,
   autostart: false,
   minimizeToTray: true,
-  similarTracks: false,
   restoreQueue: true,
-  compactQueue: true,
   audioQuality: "high" as const,
   downloadQuality: "high" as const,
-  crossfade: 0,
+  downloadFolder: null as string | null,
   gapless: true,
   normalize: false,
-  playbackSpeed: 1,
   visualizer: "disabled" as VisualizerKind,
-  cacheEnabled: true,
   cacheLimit: 2048,
   miniStyle: "full" as const,
   glass: 62,
@@ -227,40 +243,95 @@ const defaults = {
   showQueue: true,
   nextTrackPreview: true,
 
+  equalizerEnabled: false,
+  equalizerPreset: "flat" as EqualizerPreset,
+  equalizerBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  lyricsEnabled: true,
+
   playerButtons: {
     volume: true,
     equalizer: true,
-    fullCover: true,
     playlist: true,
     like: true,
     source: true,
     sleepTimer: true,
     download: true,
-    ratings: true,
     speed: true,
-    compactQueue: true,
-  } as Record<string, boolean>,
+    } as Record<string, boolean>,
   hotkeysEnabled: true,
-  hotkeys: [
-    { action: "playPause", keys: "Space" },
-    { action: "next", keys: "Ctrl →" },
-    { action: "prev", keys: "Ctrl ←" },
-    { action: "volumeUp", keys: "Ctrl ↑" },
-    { action: "volumeDown", keys: "Ctrl ↓" },
-    { action: "search", keys: "Ctrl K" },
-    { action: "like", keys: "L" },
-    { action: "queue", keys: "Q" },
-    { action: "settings", keys: "Ctrl ," },
-  ] as Hotkey[],
-  discord: true,
+  hotkeys: defaultHotkeys,
+  discord: false,
   discordShowTrack: true,
+  discordAppId: "",
   mpris: true,
   tray: true,
   deeplinks: true,
   lastfm: false,
+  lastfmApiKey: "",
+  lastfmApiSecret: "",
+  lastfmSessionKey: "",
+  lastfmUsername: "",
   checkUpdates: true,
-  betaChannel: false,
 };
+
+function isHotkey(value: unknown): value is Hotkey {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      typeof (value as Hotkey).action === "string" &&
+      typeof (value as Hotkey).keys === "string",
+  );
+}
+
+function mergeHotkeys(saved: unknown): Hotkey[] {
+  const savedMap = new Map<string, string>();
+  if (Array.isArray(saved)) {
+    for (const item of saved) {
+      if (isHotkey(item)) savedMap.set(item.action, normalizeHotkey(item.keys));
+    }
+  }
+  return defaults.hotkeys.map((hotkey) => ({
+    action: hotkey.action,
+    keys: savedMap.get(hotkey.action) ?? hotkey.keys,
+  }));
+}
+
+function numberArray(value: unknown, fallback: number[]): number[] {
+  if (!Array.isArray(value) || value.length !== fallback.length) return fallback;
+  return value.map((item, index) =>
+    typeof item === "number" && Number.isFinite(item)
+      ? Math.max(-12, Math.min(12, item))
+      : fallback[index],
+  );
+}
+
+/** Fill missing nested keys and reject corrupted persisted values. */
+export function mergeSettings(persisted: unknown, current: SettingsState): SettingsState {
+  const saved =
+    persisted && typeof persisted === "object" ? (persisted as Partial<SettingsState>) : {};
+  return {
+    ...current,
+    ...saved,
+    customColors: { ...current.customColors, ...(saved.customColors ?? {}) },
+    panelElements: { ...current.panelElements, ...(saved.panelElements ?? {}) },
+    playerButtons: { ...current.playerButtons, ...(saved.playerButtons ?? {}) },
+    panelElementsOrder:
+      Array.isArray(saved.panelElementsOrder) && saved.panelElementsOrder.length
+        ? saved.panelElementsOrder.filter((item) =>
+            current.panelElementsOrder.includes(item),
+          )
+        : current.panelElementsOrder,
+    hotkeys: mergeHotkeys(saved.hotkeys),
+    equalizerBands: numberArray(saved.equalizerBands, current.equalizerBands),
+    // Functions are never persisted, but an old/broken value must not replace
+    // the live actions from the store initializer.
+    set: current.set,
+    setPlayerButton: current.setPlayerButton,
+    setPanelElement: current.setPanelElement,
+    setColor: current.setColor,
+    reset: current.reset,
+  };
+}
 
 export const useSettings = create<SettingsState>()(
   persist(
@@ -278,6 +349,11 @@ export const useSettings = create<SettingsState>()(
         })),
       reset: () => set({ ...defaults }),
     }),
-    { name: "lumen.settings.v2" },
+    {
+      name: "lumen.settings.v2",
+      storage: createJSONStorage(() => appStorage),
+      skipHydration: true,
+      merge: (persisted, current) => mergeSettings(persisted, current),
+    },
   ),
 );

@@ -19,24 +19,31 @@ import { useSources } from "./store/sources";
 import { syncLanguage } from "./i18n";
 import { applyCustomTheme, clearCustomTheme } from "./lib/theme";
 import { attachPlayerBridge } from "./lib/playerBridge";
-import { isExternalTrack } from "./lib/catalog";
+import { isPlayableTrack } from "./lib/catalog";
 import { setCacheLimit } from "./lib/sources";
 import { isTauri } from "./lib/tauri";
+import { matchesHotkey } from "./lib/hotkeys";
+import { flushPersistence, PERSIST_ERROR_EVENT } from "./lib/persist";
+import { useIntegrations } from "./hooks/useIntegrations";
+import { isTrayAvailable, quitApp } from "./lib/integrations";
 
 function Shortcuts() {
   const navigate = useNavigate();
+  const hotkeys = useSettings((s) => s.hotkeys);
+  const hotkeysEnabled = useSettings((s) => s.hotkeysEnabled);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      const typing =
+      const typing = Boolean(
         target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT" ||
-          target.isContentEditable);
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT" ||
+            target.isContentEditable),
+      );
       const ui = useUI.getState();
       const player = usePlayer.getState();
-      const mod = e.ctrlKey || e.metaKey;
 
       if (e.key === "Escape") {
         if (ui.contextMenu) ui.closeContextMenu();
@@ -45,51 +52,62 @@ function Shortcuts() {
         else if (ui.queueOpen) ui.toggleQueue(false);
         return;
       }
-      if (mod && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        ui.closeSettings();
-        navigate("/search");
-        setTimeout(() => document.getElementById("global-search")?.focus(), 30);
-        return;
-      }
-      if (mod && e.key === ",") {
-        e.preventDefault();
-        ui.openSettings();
-        return;
-      }
-      if (typing) return;
-      if (ui.settingsOpen) return;
-      if (e.code === "Space") {
-        e.preventDefault();
-        player.toggle();
-      } else if (e.key === "ArrowRight" && mod) {
-        e.preventDefault();
-        player.next();
-      } else if (e.key === "ArrowLeft" && mod) {
-        e.preventDefault();
-        player.prev();
-      } else if (e.key === "ArrowUp" && mod) {
-        e.preventDefault();
-        player.setVolume(player.volume + 0.05);
-      } else if (e.key === "ArrowDown" && mod) {
-        e.preventDefault();
-        player.setVolume(player.volume - 0.05);
-      } else if (e.key.toLowerCase() === "q") {
-        ui.toggleQueue();
-      } else if (e.key.toLowerCase() === "l") {
-        const track = player.queue[player.index];
-        if (track) {
-          useLibrary.getState().toggleFavorite(track.id);
+
+      if (!hotkeysEnabled) return;
+      const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
+      if (typing && !hasModifier) return;
+
+      const action = hotkeys.find((hotkey) => matchesHotkey(e, hotkey.keys))?.action;
+      if (!action) return;
+      if (e.repeat && action !== "volumeUp" && action !== "volumeDown") return;
+      if (ui.settingsOpen && action !== "settings" && action !== "search") return;
+
+      e.preventDefault();
+      switch (action) {
+        case "playPause":
+          player.toggle();
+          break;
+        case "next":
+          player.next();
+          break;
+        case "prev":
+          player.prev();
+          break;
+        case "volumeUp":
+          player.setVolume(player.volume + 0.05);
+          break;
+        case "volumeDown":
+          player.setVolume(player.volume - 0.05);
+          break;
+        case "search":
+          ui.closeSettings();
+          navigate("/search");
+          window.setTimeout(() => document.getElementById("global-search")?.focus(), 30);
+          break;
+        case "like": {
+          const track = player.queue[player.index];
+          if (track) useLibrary.getState().toggleFavorite(track.id);
+          break;
         }
+        case "queue":
+          ui.toggleQueue();
+          break;
+        case "settings":
+          if (ui.settingsOpen) ui.closeSettings();
+          else ui.openSettings();
+          break;
+        default:
+          break;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [navigate]);
+  }, [navigate, hotkeys, hotkeysEnabled]);
   return null;
 }
 
 export default function App() {
+  useIntegrations();
   const language = useSettings((s) => s.language);
   const accent = useSettings((s) => s.accent);
   const fontScale = useSettings((s) => s.fontScale);
@@ -173,13 +191,70 @@ export default function App() {
   useEffect(() => {
     const id = window.setInterval(() => {
       const state = usePlayer.getState();
+      state.tickClock(Date.now());
       const track = state.queue[state.index];
-      if (!track || !isExternalTrack(track)) state.tick(0.25);
+      if (!track || !isPlayableTrack(track)) state.tick(0.25);
     }, 250);
-    return () => window.clearInterval(id);
+    const resumeId = window.setInterval(() => {
+      usePlayer.getState().syncResumePosition();
+    }, 5000);
+    return () => {
+      window.clearInterval(id);
+      window.clearInterval(resumeId);
+    };
   }, []);
 
   useEffect(() => attachPlayerBridge(), []);
+
+  useEffect(() => {
+    const onPersistError = (event: Event) => {
+      const message = (event as CustomEvent<string>).detail;
+      if (message) useUI.getState().toast(message, "error");
+    };
+    const onBeforeUnload = () => {
+      void flushPersistence();
+    };
+    window.addEventListener(PERSIST_ERROR_EVENT, onPersistError);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener(PERSIST_ERROR_EVENT, onPersistError);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    let disposed = false;
+    let closing = false;
+    let unlisten: (() => void) | undefined;
+
+    void (async () => {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const appWindow = getCurrentWindow();
+      const stop = await appWindow.onCloseRequested(async (event) => {
+        if (closing) return;
+        closing = true;
+        event.preventDefault();
+        usePlayer.getState().syncResumePosition();
+        await flushPersistence();
+        const settings = useSettings.getState();
+        const trayReady = settings.tray && (await isTrayAvailable().catch(() => false));
+        if (trayReady && settings.minimizeToTray) {
+          await appWindow.hide();
+          closing = false;
+        } else {
+          await quitApp().catch(() => appWindow.destroy());
+        }
+      });
+      if (disposed) stop();
+      else unlisten = stop;
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isTauri) return;
