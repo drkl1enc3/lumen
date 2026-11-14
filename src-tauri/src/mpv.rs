@@ -1,3 +1,4 @@
+use crate::child_env;
 use crate::sources::find_binary;
 use crate::AppState;
 use serde_json::{json, Value};
@@ -172,6 +173,7 @@ fn start_mpv(
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     configure_child(&mut command);
+    child_env::sanitize_std(&mut command);
     let child = command
         .spawn()
         .map_err(|e| format!("Не удалось запустить mpv: {e}"))?;

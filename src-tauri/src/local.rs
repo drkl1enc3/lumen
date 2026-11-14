@@ -1,3 +1,4 @@
+use crate::child_env;
 use crate::sources::find_binary;
 use crate::AppState;
 use serde::Serialize;
@@ -82,6 +83,7 @@ fn probe_track(path: &Path) -> Option<LocalTrack> {
             .arg("-show_format")
             .arg(path);
         prepare_command(&mut command);
+        child_env::sanitize_std(&mut command);
         if let Ok(output) = command.output() {
             if output.status.success() {
                 if let Ok(value) = serde_json::from_slice::<Value>(&output.stdout) {

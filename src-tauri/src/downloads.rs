@@ -1,3 +1,4 @@
+use crate::child_env;
 use crate::sources::{find_binary, normalize_media_url, validate_media_url};
 use crate::AppState;
 use serde::Serialize;
@@ -133,6 +134,7 @@ pub async fn download_track(
     {
         command.creation_flags(0x08000000);
     }
+    child_env::sanitize_tokio(&mut command);
 
     let mut child = command
         .spawn()

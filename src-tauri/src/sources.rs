@@ -1,3 +1,4 @@
+use crate::child_env;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -151,6 +152,9 @@ pub fn find_binary(name: &str) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("PATH") {
         dirs.extend(std::env::split_paths(&path));
     }
+    // AppImage prepends its private /usr/bin to PATH. Do not let it shadow
+    // the user's system yt-dlp/ffmpeg/mpv binaries.
+    dirs.retain(|dir| !child_env::is_private_path(dir));
     for extra in ["/usr/bin", "/usr/local/bin", "/bin", "/usr/sbin", "/sbin"] {
         dirs.push(PathBuf::from(extra));
     }
@@ -190,6 +194,7 @@ fn tool_info(path: &Path, args: &[&str]) -> Option<ToolInfo> {
     let mut command = std::process::Command::new(path);
     command.args(args);
     prepare_std_command(&mut command);
+    child_env::sanitize_std(&mut command);
     let output = command.output().ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let first = text.lines().next().unwrap_or("").trim();
@@ -436,6 +441,7 @@ async fn run_ytdlp_json(ytdlp: &Path, args: Vec<String>) -> Result<String, Strin
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     prepare_tokio_command(&mut command);
+    child_env::sanitize_tokio(&mut command);
 
     let mut child = command
         .spawn()
@@ -737,6 +743,7 @@ fn ffprobe_duration(path: &Path) -> f64 {
         ])
         .arg(path);
     prepare_std_command(&mut command);
+    child_env::sanitize_std(&mut command);
     let output = command.output();
     let Ok(output) = output else { return 0.0 };
     String::from_utf8_lossy(&output.stdout)
@@ -809,6 +816,7 @@ async fn download_audio(
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     prepare_tokio_command(&mut command);
+    child_env::sanitize_tokio(&mut command);
 
     let mut child = command
         .spawn()
