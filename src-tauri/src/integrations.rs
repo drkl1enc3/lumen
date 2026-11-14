@@ -159,9 +159,12 @@ pub fn media_update(
     controls
         .set_metadata(metadata)
         .map_err(|error| format!("MPRIS: {error}"))?;
+    #[cfg(target_os = "linux")]
     controls
         .set_volume(volume.clamp(0.0, 1.0))
         .map_err(|error| format!("MPRIS: {error}"))?;
+    #[cfg(not(target_os = "linux"))]
+    let _ = volume;
     Ok(())
 }
 
