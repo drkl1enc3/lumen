@@ -33,9 +33,9 @@ jobs:
           name: lumen-linux
           if-no-files-found: error
           path: |
-            src-tauri/target/release/bundle/appimage/*
-            src-tauri/target/release/bundle/deb/*
-            src-tauri/target/release/bundle/rpm/*
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
 
   windows:
     runs-on: windows-latest
@@ -90,7 +90,7 @@ jobs:
           name: lumen-windows
           if-no-files-found: error
           path: |
-            src-tauri/target/release/bundle/nsis/*
+            src-tauri/target/release/bundle/nsis/*.exe
             Lumen_*_x64-portable.zip
 
   publish:
